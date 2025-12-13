@@ -1,38 +1,103 @@
-import { type User, type InsertUser } from "@shared/schema";
-import { randomUUID } from "crypto";
-
-// modify the interface with any CRUD methods
-// you might need
+import { 
+  users, type User, type InsertUser,
+  savedDesigns, type SavedDesign, type InsertSavedDesign,
+  analysisJobs, type AnalysisJob, type InsertAnalysisJob
+} from "@shared/schema";
+import { db } from "./db";
+import { eq, desc, sql } from "drizzle-orm";
 
 export interface IStorage {
+  // Users
   getUser(id: string): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
+  
+  // Analysis Jobs
+  createAnalysisJob(job: InsertAnalysisJob): Promise<AnalysisJob>;
+  getAnalysisJob(id: string): Promise<AnalysisJob | undefined>;
+  updateAnalysisJob(id: string, updates: Partial<InsertAnalysisJob>): Promise<AnalysisJob | undefined>;
+  
+  // Saved Designs
+  createSavedDesign(design: InsertSavedDesign): Promise<SavedDesign>;
+  getSavedDesign(id: string): Promise<SavedDesign | undefined>;
+  getAllSavedDesigns(): Promise<SavedDesign[]>;
+  updateSavedDesign(id: string, updates: Partial<InsertSavedDesign>): Promise<SavedDesign | undefined>;
+  deleteSavedDesign(id: string): Promise<boolean>;
+  incrementViewCount(id: string): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-
-  constructor() {
-    this.users = new Map();
-  }
-
+export class DatabaseStorage implements IStorage {
+  // Users
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username,
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
+    const [user] = await db.insert(users).values(insertUser).returning();
     return user;
+  }
+
+  // Analysis Jobs
+  async createAnalysisJob(job: InsertAnalysisJob): Promise<AnalysisJob> {
+    const [created] = await db.insert(analysisJobs).values(job).returning();
+    return created;
+  }
+
+  async getAnalysisJob(id: string): Promise<AnalysisJob | undefined> {
+    const [job] = await db.select().from(analysisJobs).where(eq(analysisJobs.id, id));
+    return job || undefined;
+  }
+
+  async updateAnalysisJob(id: string, updates: Partial<InsertAnalysisJob>): Promise<AnalysisJob | undefined> {
+    const [updated] = await db
+      .update(analysisJobs)
+      .set(updates)
+      .where(eq(analysisJobs.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  // Saved Designs
+  async createSavedDesign(design: InsertSavedDesign): Promise<SavedDesign> {
+    const [created] = await db.insert(savedDesigns).values(design).returning();
+    return created;
+  }
+
+  async getSavedDesign(id: string): Promise<SavedDesign | undefined> {
+    const [design] = await db.select().from(savedDesigns).where(eq(savedDesigns.id, id));
+    return design || undefined;
+  }
+
+  async getAllSavedDesigns(): Promise<SavedDesign[]> {
+    return await db.select().from(savedDesigns).orderBy(desc(savedDesigns.createdAt));
+  }
+
+  async updateSavedDesign(id: string, updates: Partial<InsertSavedDesign>): Promise<SavedDesign | undefined> {
+    const [updated] = await db
+      .update(savedDesigns)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(savedDesigns.id, id))
+      .returning();
+    return updated || undefined;
+  }
+
+  async deleteSavedDesign(id: string): Promise<boolean> {
+    const result = await db.delete(savedDesigns).where(eq(savedDesigns.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async incrementViewCount(id: string): Promise<void> {
+    await db
+      .update(savedDesigns)
+      .set({ viewCount: sql`${savedDesigns.viewCount} + 1` })
+      .where(eq(savedDesigns.id, id));
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
