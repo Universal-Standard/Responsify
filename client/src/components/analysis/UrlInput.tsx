@@ -13,10 +13,22 @@ interface UrlInputProps {
 export function UrlInput({ onAnalyze, isAnalyzing, compact = false }: UrlInputProps) {
   const [url, setUrl] = useState("");
 
+  const normalizeUrl = (input: string): string => {
+    const trimmed = input.trim();
+    if (!trimmed) return "";
+    
+    // If it doesn't start with http:// or https://, prepend https://
+    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+      return "https://" + trimmed;
+    }
+    return trimmed;
+  };
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (url.trim()) {
-      onAnalyze(url);
+    const normalizedUrl = normalizeUrl(url);
+    if (normalizedUrl) {
+      onAnalyze(normalizedUrl);
     }
   };
 
