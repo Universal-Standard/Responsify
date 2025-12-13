@@ -1,205 +1,108 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Header } from "@/components/layout/Header";
 import { Toolbar } from "@/components/layout/Toolbar";
 import { UrlInput } from "@/components/analysis/UrlInput";
 import { DeviceFrame } from "@/components/preview/DeviceFrame";
 import { EditorPanel } from "@/components/preview/EditorPanel";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowRight, Sparkles } from "lucide-react";
+import { Sparkles, Save, AlertCircle, CheckCircle } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+import { 
+  startAnalysis, 
+  pollAnalysisStatus, 
+  saveDesign,
+  type AnalysisJob,
+  type AISuggestion
+} from "@/lib/api";
 
 import generatedImage from '@assets/generated_images/subtle_geometric_tech_pattern_background_with_soft_purple_and_teal_gradients.png';
 
-// Extract domain from URL for content selection
-const getDomainCategory = (url: string): string => {
-  try {
-    const domain = new URL(url).hostname.toLowerCase();
-    if (domain.includes("n8n")) return "workflow";
-    if (domain.includes("stripe")) return "fintech";
-    if (domain.includes("airbnb")) return "travel";
-    if (domain.includes("linear")) return "productivity";
-    if (domain.includes("github")) return "code";
-    if (domain.includes("notion")) return "productivity";
-    return "default";
-  } catch {
-    return "default";
-  }
-};
-
-// Mock Component for preview content based on domain
-interface MockContentProps {
-  category?: string;
-}
-
-const MockContent = ({ category = "default" }: MockContentProps) => {
-  // Workflow/Automation content (for n8n, etc.)
-  if (category === "workflow") {
-    return (
-      <div className="p-6 space-y-6 font-sans">
-        <header className="space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-orange-100 text-orange-700 text-xs font-medium">
-            ⚙️ Workflow Automation
-          </div>
-          <h1 className="text-3xl font-bold text-gray-900">Workflow Builder</h1>
-          <p className="text-gray-600">Connect your apps and automate tasks</p>
-          <button className="w-full bg-orange-600 text-white font-semibold py-4 rounded-xl shadow-lg shadow-orange-600/30 active:scale-95 transition-transform">
-            Create Workflow
-          </button>
-        </header>
-
-        <section className="space-y-3">
-          <h2 className="text-lg font-bold text-gray-900">Recent Workflows</h2>
-          {[
-            { name: "Slack Notifications", status: "Active", trigger: "Webhook" },
-            { name: "Email Parser", status: "Active", trigger: "Gmail" },
-            { name: "Data Sync", status: "Inactive", trigger: "API" },
-          ].map((item, i) => (
-            <div key={i} className="bg-gray-50 p-4 rounded-lg border border-gray-100 flex items-center justify-between">
-              <div>
-                <div className="font-semibold text-gray-900">{item.name}</div>
-                <div className="text-xs text-gray-500">{item.trigger}</div>
-              </div>
-              <div className={`px-2 py-1 rounded text-xs font-medium ${item.status === "Active" ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-600"}`}>
-                {item.status}
-              </div>
-            </div>
-          ))}
-        </section>
-      </div>
-    );
-  }
-
-  // Productivity content (for Linear, Notion, etc.)
-  if (category === "productivity") {
-    return (
-      <div className="p-6 space-y-6 font-sans">
-        <header className="space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-purple-100 text-purple-700 text-xs font-medium">
-            📋 Workspace
-          </div>
-          <h1 className="text-3xl font-bold text-gray-900">Your Projects</h1>
-          <p className="text-gray-600">Manage tasks and collaborate with your team</p>
-          <button className="w-full bg-purple-600 text-white font-semibold py-4 rounded-xl shadow-lg shadow-purple-600/30 active:scale-95 transition-transform">
-            New Project
-          </button>
-        </header>
-
-        <section className="space-y-3">
-          <h2 className="text-lg font-bold text-gray-900">Current Projects</h2>
-          {[
-            { name: "Q1 Roadmap", items: 12, status: "In Progress" },
-            { name: "Design System", items: 8, status: "In Progress" },
-            { name: "Documentation", items: 5, status: "Planning" },
-          ].map((item, i) => (
-            <div key={i} className="bg-gray-50 p-4 rounded-lg border border-gray-100">
-              <div className="flex items-center justify-between mb-2">
-                <div className="font-semibold text-gray-900">{item.name}</div>
-                <div className="text-xs text-gray-500">{item.items} tasks</div>
-              </div>
-              <div className="h-2 w-full bg-gray-200 rounded-full overflow-hidden">
-                <div className="h-full bg-purple-600 w-[60%]" />
-              </div>
-            </div>
-          ))}
-        </section>
-      </div>
-    );
-  }
-
-  // Travel content (for Airbnb, etc.)
-  if (category === "travel") {
-    return (
-      <div className="p-6 space-y-6 font-sans">
-        <header className="space-y-4">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-red-100 text-red-700 text-xs font-medium">
-            ✈️ Travel
-          </div>
-          <h1 className="text-3xl font-bold text-gray-900">Find Your Next Stay</h1>
-          <p className="text-gray-600">Discover unique places around the world</p>
-          <div className="flex gap-2">
-            <input type="text" placeholder="Where to?" className="flex-1 px-4 py-3 rounded-lg border border-gray-300 text-sm" />
-            <button className="bg-red-600 text-white font-semibold px-6 py-3 rounded-lg">Search</button>
-          </div>
-        </header>
-
-        <section className="space-y-4">
-          <h2 className="text-lg font-bold text-gray-900">Popular Stays</h2>
-          {[
-            { name: "Beach Villa", price: "$245", rating: 4.8 },
-            { name: "City Apartment", price: "$189", rating: 4.6 },
-            { name: "Mountain Cabin", price: "$320", rating: 5.0 },
-          ].map((item, i) => (
-            <div key={i} className="bg-gray-50 p-4 rounded-lg border border-gray-100">
-              <div className="h-24 bg-gradient-to-br from-red-400 to-orange-400 rounded-lg mb-3" />
-              <div className="flex items-center justify-between">
-                <div>
-                  <div className="font-semibold text-gray-900">{item.name}</div>
-                  <div className="text-sm text-gray-600">{item.price}/night</div>
-                </div>
-                <div className="text-sm font-medium text-gray-900">⭐ {item.rating}</div>
-              </div>
-            </div>
-          ))}
-        </section>
-      </div>
-    );
-  }
-
-  // Default banking content
-  return (
-    <div className="p-6 space-y-8 font-sans">
-      <header className="space-y-4 text-center">
-        <div className="w-16 h-16 bg-gradient-to-tr from-blue-600 to-cyan-400 rounded-2xl mx-auto shadow-xl mb-6" />
-        <h1 className="text-3xl font-bold text-gray-900 leading-tight">
-          Modern Banking for <span className="text-blue-600">Everyone</span>
-        </h1>
-        <p className="text-gray-600 leading-relaxed">
-          Experience the future of finance with zero fees, instant transfers, and smart analytics.
-        </p>
-        <button className="w-full bg-blue-600 text-white font-semibold py-4 rounded-xl shadow-lg shadow-blue-600/30 active:scale-95 transition-transform">
-          Get Started
-        </button>
-      </header>
-
-      <section className="grid grid-cols-2 gap-4">
-        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-          <div className="text-2xl font-bold text-gray-900">$0</div>
-          <div className="text-xs text-gray-500 font-medium">Monthly Fees</div>
-        </div>
-        <div className="bg-gray-50 p-4 rounded-2xl border border-gray-100">
-          <div className="text-2xl font-bold text-gray-900">4.5%</div>
-          <div className="text-xs text-gray-500 font-medium">APY Savings</div>
-        </div>
-      </section>
-
-      <section className="space-y-4">
-        <h2 className="text-xl font-bold text-gray-900">Latest Activity</h2>
-        {[1, 2, 3].map((i) => (
-          <div key={i} className="flex items-center gap-4 py-2">
-            <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center text-lg">🛍️</div>
-            <div className="flex-1">
-              <div className="font-semibold text-gray-900">Grocery Store</div>
-              <div className="text-xs text-gray-500">Today, 12:42 PM</div>
-            </div>
-            <div className="font-medium text-gray-900">-$64.20</div>
-          </div>
-        ))}
-      </section>
-    </div>
-  );
-};
-
 export default function Home() {
-  const [url, setUrl] = useState<string | null>(null);
+  const [currentJob, setCurrentJob] = useState<AnalysisJob | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [view, setView] = useState<"mobile" | "tablet" | "desktop">("mobile");
+  const [isSaving, setIsSaving] = useState(false);
+  const pollCleanupRef = useRef<(() => void) | null>(null);
+  const { toast } = useToast();
 
-  const handleAnalyze = (inputUrl: string) => {
+  // Cleanup polling on unmount
+  useEffect(() => {
+    return () => {
+      if (pollCleanupRef.current) {
+        pollCleanupRef.current();
+      }
+    };
+  }, []);
+
+  const handleAnalyze = async (inputUrl: string) => {
     setIsAnalyzing(true);
-    // Simulate AI delay
-    setTimeout(() => {
+    setCurrentJob(null);
+
+    try {
+      const { jobId } = await startAnalysis(inputUrl);
+      
+      // Start polling for status
+      pollCleanupRef.current = pollAnalysisStatus(
+        jobId,
+        (job) => {
+          setCurrentJob(job);
+        },
+        (job) => {
+          setCurrentJob(job);
+          setIsAnalyzing(false);
+          toast({
+            title: "Analysis Complete",
+            description: `Successfully analyzed ${job.pageTitle || job.url}`,
+          });
+        },
+        (error) => {
+          setIsAnalyzing(false);
+          toast({
+            title: "Analysis Failed",
+            description: error.message,
+            variant: "destructive",
+          });
+        }
+      );
+    } catch (error: any) {
       setIsAnalyzing(false);
-      setUrl(inputUrl);
-    }, 2000);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to start analysis",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const handleSaveDesign = async () => {
+    if (!currentJob || currentJob.status !== "completed") return;
+    
+    setIsSaving(true);
+    try {
+      const name = currentJob.pageTitle || new URL(currentJob.url).hostname;
+      await saveDesign(currentJob.id, name);
+      toast({
+        title: "Design Saved",
+        description: "Your design has been saved to the library",
+      });
+    } catch (error: any) {
+      toast({
+        title: "Save Failed",
+        description: error.message,
+        variant: "destructive",
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleReset = () => {
+    if (pollCleanupRef.current) {
+      pollCleanupRef.current();
+    }
+    setCurrentJob(null);
+    setIsAnalyzing(false);
   };
 
   return (
@@ -209,16 +112,16 @@ export default function Home() {
       <main className="flex-1 flex flex-col relative">
         {/* Background Texture */}
         <div 
-            className="absolute inset-0 z-0 opacity-40 pointer-events-none"
-            style={{
-                backgroundImage: `url(${generatedImage})`,
-                backgroundSize: 'cover',
-                backgroundPosition: 'center',
-            }}
+          className="absolute inset-0 z-0 opacity-40 pointer-events-none"
+          style={{
+            backgroundImage: `url(${generatedImage})`,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+          }}
         />
 
         <AnimatePresence mode="wait">
-          {!url ? (
+          {!currentJob ? (
             // Empty State / Hero
             <motion.div 
               key="hero"
@@ -255,7 +158,14 @@ export default function Home() {
               animate={{ opacity: 1 }}
               className="flex-1 flex flex-col h-full z-10"
             >
-              <Toolbar currentView={view} onViewChange={setView} />
+              <Toolbar 
+                currentView={view} 
+                onViewChange={setView} 
+                onReset={handleReset}
+                onSave={handleSaveDesign}
+                isSaving={isSaving}
+                canSave={currentJob?.status === "completed"}
+              />
               
               <div className="flex-1 flex overflow-hidden">
                 <div className="flex-1 bg-muted/30 relative">
@@ -265,16 +175,78 @@ export default function Home() {
                   />
                   
                   <DeviceFrame type={view}>
-                    <MockContent category={url ? getDomainCategory(url) : "default"} />
+                    <MobilePreview job={currentJob} isAnalyzing={isAnalyzing} />
                   </DeviceFrame>
                 </div>
                 
-                <EditorPanel />
+                <EditorPanel 
+                  job={currentJob}
+                  isAnalyzing={isAnalyzing}
+                />
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </main>
+    </div>
+  );
+}
+
+// Mobile Preview Component
+function MobilePreview({ job, isAnalyzing }: { job: AnalysisJob; isAnalyzing: boolean }) {
+  if (isAnalyzing || job.status === "analyzing" || job.status === "converting") {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-8 text-center">
+        <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-6 animate-pulse">
+          <Sparkles className="w-8 h-8 text-primary animate-spin" style={{ animationDuration: "3s" }} />
+        </div>
+        <h3 className="text-xl font-semibold text-gray-900 mb-2">
+          {job.status === "converting" ? "Generating Mobile Layout..." : "Analyzing Website..."}
+        </h3>
+        <p className="text-gray-500 text-sm max-w-xs">
+          {job.status === "converting" 
+            ? "AI is creating your optimized mobile design" 
+            : "Fetching and parsing website structure"}
+        </p>
+        <div className="mt-6 flex gap-2">
+          <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
+          <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "150ms" }} />
+          <div className="w-2 h-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "300ms" }} />
+        </div>
+      </div>
+    );
+  }
+
+  if (job.status === "failed") {
+    return (
+      <div className="h-full flex flex-col items-center justify-center p-8 text-center">
+        <div className="w-16 h-16 rounded-full bg-red-100 flex items-center justify-center mb-6">
+          <AlertCircle className="w-8 h-8 text-red-500" />
+        </div>
+        <h3 className="text-xl font-semibold text-gray-900 mb-2">Analysis Failed</h3>
+        <p className="text-gray-500 text-sm max-w-xs">{job.errorMessage || "Something went wrong"}</p>
+      </div>
+    );
+  }
+
+  if (job.status === "completed" && job.mobileConversion) {
+    return (
+      <iframe
+        srcDoc={job.mobileConversion}
+        className="w-full h-full border-0"
+        title="Mobile Preview"
+        sandbox="allow-scripts"
+      />
+    );
+  }
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center p-8 text-center">
+      <div className="w-16 h-16 rounded-full bg-green-100 flex items-center justify-center mb-6">
+        <CheckCircle className="w-8 h-8 text-green-500" />
+      </div>
+      <h3 className="text-xl font-semibold text-gray-900 mb-2">Ready</h3>
+      <p className="text-gray-500 text-sm">Preview will appear here</p>
     </div>
   );
 }

@@ -1,7 +1,7 @@
 import { 
   users, type User, type InsertUser,
   savedDesigns, type SavedDesign, type InsertSavedDesign,
-  analysisJobs, type AnalysisJob, type InsertAnalysisJob
+  analysisJobs, type AnalysisJob, type InsertAnalysisJob, type UpdateAnalysisJob
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, sql } from "drizzle-orm";
@@ -15,7 +15,7 @@ export interface IStorage {
   // Analysis Jobs
   createAnalysisJob(job: InsertAnalysisJob): Promise<AnalysisJob>;
   getAnalysisJob(id: string): Promise<AnalysisJob | undefined>;
-  updateAnalysisJob(id: string, updates: Partial<InsertAnalysisJob>): Promise<AnalysisJob | undefined>;
+  updateAnalysisJob(id: string, updates: UpdateAnalysisJob): Promise<AnalysisJob | undefined>;
   
   // Saved Designs
   createSavedDesign(design: InsertSavedDesign): Promise<SavedDesign>;
@@ -54,7 +54,7 @@ export class DatabaseStorage implements IStorage {
     return job || undefined;
   }
 
-  async updateAnalysisJob(id: string, updates: Partial<InsertAnalysisJob>): Promise<AnalysisJob | undefined> {
+  async updateAnalysisJob(id: string, updates: UpdateAnalysisJob): Promise<AnalysisJob | undefined> {
     const [updated] = await db
       .update(analysisJobs)
       .set(updates)

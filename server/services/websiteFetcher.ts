@@ -191,16 +191,17 @@ export function extractWebsiteContent(html: string): ExtractedContent {
   // Extract colors from inline styles
   const colorRegex = /#[0-9a-fA-F]{3,6}|rgb\([^)]+\)|rgba\([^)]+\)/g;
   const colorMatches = html.match(colorRegex) || [];
-  content.styles.colors = [...new Set(colorMatches)].slice(0, 20);
+  content.styles.colors = Array.from(new Set(colorMatches)).slice(0, 20);
 
   // Extract font families
   const fontRegex = /font-family:\s*([^;}"']+)/gi;
   let fontMatch;
-  const fonts = new Set<string>();
+  const fonts: string[] = [];
   while ((fontMatch = fontRegex.exec(html)) !== null) {
-    fonts.add(fontMatch[1].trim());
+    const font = fontMatch[1].trim();
+    if (!fonts.includes(font)) fonts.push(font);
   }
-  content.styles.fonts = [...fonts].slice(0, 10);
+  content.styles.fonts = fonts.slice(0, 10);
 
   // Main content paragraphs
   const pRegex = /<p[^>]*>([^<]*(?:<[^>]+>[^<]*)*)<\/p>/gi;

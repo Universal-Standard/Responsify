@@ -101,6 +101,23 @@ export const insertAnalysisJobSchema = createInsertSchema(analysisJobs).omit({
 export type InsertAnalysisJob = z.infer<typeof insertAnalysisJobSchema>;
 export type AnalysisJob = typeof analysisJobs.$inferSelect;
 
+// Update type for analysis jobs - includes all updateable fields
+export type UpdateAnalysisJob = Partial<{
+  url: string;
+  status: string;
+  rawHtml: string | null;
+  pageTitle: string | null;
+  pageDescription: string | null;
+  extractedElements: unknown;
+  aiAnalysis: unknown;
+  mobileConversion: string | null;
+  suggestions: unknown;
+  responsiveScore: number | null;
+  readabilityScore: number | null;
+  errorMessage: string | null;
+  completedAt: Date | null;
+}>;
+
 // Request/response schemas for API validation
 export const analyzeUrlRequestSchema = z.object({
   url: z.string().url("Please enter a valid URL"),
