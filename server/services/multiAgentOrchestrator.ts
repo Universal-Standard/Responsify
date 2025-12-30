@@ -6,6 +6,8 @@
  * - Analyzer (OpenAI GPT-4o): Extracts and understands website structure
  * - Designer (Anthropic Claude): Generates mobile layouts with UX focus
  * - Critic (Google Gemini): Reviews and scores design quality
+ * - Accessibility Agent (Gemini): Audits WCAG compliance
+ * - Performance Agent (OpenAI): Analyzes optimization opportunities
  */
 
 import OpenAI from "openai";
@@ -42,10 +44,37 @@ export interface AgentEvaluation {
   suggestions: AISuggestion[];
 }
 
+export interface AccessibilityAudit {
+  wcagScore: number;
+  issues: {
+    type: "alt-text" | "color-contrast" | "touch-targets" | "focus-indicators" | "semantic-structure" | "other";
+    severity: "critical" | "serious" | "moderate" | "minor";
+    description: string;
+    recommendation: string;
+  }[];
+}
+
+export interface PerformanceInsights {
+  suggestions: {
+    category: "images" | "fonts" | "css" | "scripts" | "general";
+    impact: "high" | "medium" | "low";
+    title: string;
+    description: string;
+  }[];
+}
+
+export interface AgentProgressEvent {
+  agent: string;
+  status: "running" | "completed" | "failed";
+  message: string;
+}
+
 export interface ConsensusResult {
   consensusScore: number;
   responsiveScore: number;
   readabilityScore: number;
+  accessibilityScore: number;
+  performanceScore: number;
   evaluations: AgentEvaluation[];
   mobileLayout: MobileLayoutSection[];
   suggestions: AISuggestion[];
@@ -55,6 +84,8 @@ export interface ConsensusResult {
     bodyFont: string;
     sizes: { heading: string; body: string; small: string };
   };
+  accessibilityAudit: AccessibilityAudit;
+  performanceInsights: PerformanceInsights;
 }
 
 /**
@@ -226,6 +257,175 @@ Respond with JSON only:
       overallScore: 75,
       feedback: "Unable to complete detailed review",
       suggestions: [],
+    };
+  }
+}
+
+/**
+ * Accessibility Agent (Gemini)
+ * Audits WCAG compliance for the mobile design
+ */
+async function runAccessibilityAgent(
+  layout: MobileLayoutSection[],
+  originalContent: ExtractedContent
+): Promise<{ accessibilityScore: number; audit: AccessibilityAudit }> {
+  try {
+    const layoutHtml = layout.map(s => s.content).join("\n");
+    
+    const response = await gemini.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: `You are a WCAG accessibility expert. Audit this mobile design for accessibility compliance.
+
+Layout HTML:
+${layoutHtml.slice(0, 3000)}
+
+Images detected: ${originalContent.images.slice(0, 10).map(img => `${img.alt ? 'Has alt' : 'Missing alt'}: ${img.src.slice(0, 50)}`).join(", ")}
+
+Check for:
+1. Alt text - Do images have descriptive alt text?
+2. Color contrast - Are text colors contrasted enough against backgrounds?
+3. Touch targets - Are buttons and links at least 44x44px?
+4. Focus indicators - Are interactive elements focusable?
+5. Semantic structure - Is there proper heading hierarchy?
+
+Respond with JSON only:
+{
+  "wcagScore": 75,
+  "issues": [
+    {
+      "type": "alt-text",
+      "severity": "serious",
+      "description": "Description of the issue",
+      "recommendation": "How to fix it"
+    }
+  ]
+}
+
+Types: alt-text, color-contrast, touch-targets, focus-indicators, semantic-structure, other
+Severity: critical, serious, moderate, minor`,
+    });
+
+    const text = response.text || "";
+    const cleaned = text.replace(/```json\n?|\n?```/g, "").trim();
+    const result = JSON.parse(cleaned);
+
+    const wcagScore = result.wcagScore || 70;
+    const issues = (result.issues || []).map((issue: any) => ({
+      type: issue.type || "other",
+      severity: issue.severity || "moderate",
+      description: issue.description || "Accessibility issue detected",
+      recommendation: issue.recommendation || "Review and fix the issue",
+    }));
+
+    return {
+      accessibilityScore: wcagScore,
+      audit: { wcagScore, issues },
+    };
+  } catch (error) {
+    console.error("Accessibility agent error:", error);
+    return {
+      accessibilityScore: 70,
+      audit: {
+        wcagScore: 70,
+        issues: [
+          {
+            type: "other",
+            severity: "moderate",
+            description: "Could not complete full accessibility audit",
+            recommendation: "Manually review accessibility guidelines",
+          },
+        ],
+      },
+    };
+  }
+}
+
+/**
+ * Performance Agent (OpenAI)
+ * Analyzes optimization opportunities for the design
+ */
+async function runPerformanceAgent(
+  layout: MobileLayoutSection[],
+  originalContent: ExtractedContent
+): Promise<{ performanceScore: number; insights: PerformanceInsights }> {
+  try {
+    const layoutHtml = layout.map(s => s.content).join("\n");
+    
+    const response = await openai.chat.completions.create({
+      model: "gpt-4o",
+      messages: [
+        {
+          role: "system",
+          content: "You are a web performance optimization expert. Analyze designs for performance issues. Respond in JSON only."
+        },
+        {
+          role: "user",
+          content: `Analyze this mobile design for performance optimization opportunities.
+
+Layout HTML:
+${layoutHtml.slice(0, 3000)}
+
+Images: ${originalContent.images.length} detected
+Fonts: ${originalContent.styles.fonts.slice(0, 5).join(", ")}
+Colors/Styles: ${originalContent.styles.colors.length} color values
+
+Analyze:
+1. Image optimization - Are there opportunities for lazy loading, WebP format, responsive images?
+2. Font loading optimization - Can fonts be subset, preloaded, or replaced with system fonts?
+3. CSS efficiency - Is there redundant styling? Can styles be consolidated?
+4. General performance - Are there render-blocking concerns?
+
+Respond with JSON:
+{
+  "performanceScore": 80,
+  "optimizations": [
+    {
+      "category": "images",
+      "impact": "high",
+      "title": "Optimization title",
+      "description": "Detailed description"
+    }
+  ]
+}
+
+Categories: images, fonts, css, scripts, general
+Impact: high, medium, low`
+        }
+      ],
+      temperature: 0.3,
+      max_tokens: 1500,
+    });
+
+    const text = response.choices[0]?.message?.content || "";
+    const cleaned = text.replace(/```json\n?|\n?```/g, "").trim();
+    const result = JSON.parse(cleaned);
+
+    const performanceScore = result.performanceScore || 75;
+    const suggestions = (result.optimizations || []).map((opt: any) => ({
+      category: opt.category || "general",
+      impact: opt.impact || "medium",
+      title: opt.title || "Performance suggestion",
+      description: opt.description || "Optimize for better performance",
+    }));
+
+    return {
+      performanceScore,
+      insights: { suggestions },
+    };
+  } catch (error) {
+    console.error("Performance agent error:", error);
+    return {
+      performanceScore: 75,
+      insights: {
+        suggestions: [
+          {
+            category: "general",
+            impact: "medium",
+            title: "Performance Review Needed",
+            description: "Could not complete automated performance analysis. Manual review recommended.",
+          },
+        ],
+      },
     };
   }
 }
@@ -439,28 +639,37 @@ function createFallbackDesign(content: ExtractedContent, url: string): {
 }
 
 /**
- * Main orchestration function - runs all agents and builds consensus
+ * Run a single iteration of multi-agent analysis
  */
-export async function runMultiAgentAnalysis(
+async function runAnalysisIteration(
   url: string,
-  extractedContent: ExtractedContent
+  extractedContent: ExtractedContent,
+  iteration: number,
+  previousFeedback?: string
 ): Promise<ConsensusResult> {
-  console.log("[Multi-Agent] Starting consensus analysis for:", url);
+  console.log(`[Multi-Agent] Starting iteration ${iteration} for:`, url);
 
   // Step 1: Run Analyzer Agent (OpenAI)
   console.log("[Multi-Agent] Running Analyzer Agent (OpenAI)...");
   const analysis = await runAnalyzerAgent(url, extractedContent);
 
   // Step 2: Run Designer Agent (Anthropic Claude)
+  // If refinement iteration, include previous feedback
+  const structureWithFeedback = previousFeedback 
+    ? `${analysis.structure}\n\nPrevious feedback to incorporate: ${previousFeedback}`
+    : analysis.structure;
+  
   console.log("[Multi-Agent] Running Designer Agent (Anthropic)...");
-  const design = await runDesignerAgent(url, extractedContent, analysis.structure);
+  const design = await runDesignerAgent(url, extractedContent, structureWithFeedback);
 
-  // Step 3: Run all evaluator agents in parallel
-  console.log("[Multi-Agent] Running Critic Agents (OpenAI, Anthropic, Gemini)...");
-  const [geminiEval, openaiEval, anthropicEval] = await Promise.all([
+  // Step 3: Run all agents in parallel - critics, accessibility, and performance
+  console.log("[Multi-Agent] Running Critic, Accessibility, and Performance Agents...");
+  const [geminiEval, openaiEval, anthropicEval, accessibilityResult, performanceResult] = await Promise.all([
     runCriticAgent(url, design.layout, extractedContent),
     runOpenAIEvaluator(design.layout, extractedContent),
     runAnthropicEvaluator(design.layout, extractedContent),
+    runAccessibilityAgent(design.layout, extractedContent),
+    runPerformanceAgent(design.layout, extractedContent),
   ]);
 
   const evaluations = [geminiEval, openaiEval, anthropicEval];
@@ -469,12 +678,14 @@ export async function runMultiAgentAnalysis(
   const consensus = calculateConsensus(evaluations);
   const mergedSuggestions = mergeSuggestions(evaluations);
 
-  console.log(`[Multi-Agent] Consensus score: ${consensus.consensusScore}%`);
+  console.log(`[Multi-Agent] Iteration ${iteration} consensus score: ${consensus.consensusScore}%`);
 
   return {
     consensusScore: consensus.consensusScore,
     responsiveScore: consensus.responsiveScore,
     readabilityScore: consensus.readabilityScore,
+    accessibilityScore: accessibilityResult.accessibilityScore,
+    performanceScore: performanceResult.performanceScore,
     evaluations,
     mobileLayout: design.layout,
     suggestions: mergedSuggestions,
@@ -484,7 +695,49 @@ export async function runMultiAgentAnalysis(
       bodyFont: design.fonts.body,
       sizes: { heading: "28px", body: "16px", small: "14px" },
     },
+    accessibilityAudit: accessibilityResult.audit,
+    performanceInsights: performanceResult.insights,
   };
+}
+
+/**
+ * Main orchestration function - runs all agents and builds consensus with iteration support
+ */
+export async function runMultiAgentAnalysis(
+  url: string,
+  extractedContent: ExtractedContent
+): Promise<ConsensusResult> {
+  const MAX_ITERATIONS = 2;
+  const CONSENSUS_THRESHOLD = 80;
+  
+  console.log("[Multi-Agent] Starting consensus analysis for:", url);
+
+  // First iteration
+  let bestResult = await runAnalysisIteration(url, extractedContent, 1);
+  
+  // Check if refinement is needed (consensus score < 80)
+  if (bestResult.consensusScore < CONSENSUS_THRESHOLD && MAX_ITERATIONS > 1) {
+    console.log(`[Multi-Agent] Consensus score ${bestResult.consensusScore}% < ${CONSENSUS_THRESHOLD}%, running refinement iteration...`);
+    
+    // Gather feedback from evaluations for refinement
+    const feedbackSummary = bestResult.evaluations
+      .map(e => `${e.agent}: ${e.feedback}`)
+      .join(" | ");
+    
+    // Run second iteration with feedback
+    const refinedResult = await runAnalysisIteration(url, extractedContent, 2, feedbackSummary);
+    
+    // Keep the better result
+    if (refinedResult.consensusScore > bestResult.consensusScore) {
+      console.log(`[Multi-Agent] Refinement improved score from ${bestResult.consensusScore}% to ${refinedResult.consensusScore}%`);
+      bestResult = refinedResult;
+    } else {
+      console.log(`[Multi-Agent] Keeping original result (${bestResult.consensusScore}% >= ${refinedResult.consensusScore}%)`);
+    }
+  }
+
+  console.log(`[Multi-Agent] Final consensus score: ${bestResult.consensusScore}%`);
+  return bestResult;
 }
 
 /**

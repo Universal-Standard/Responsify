@@ -51,8 +51,8 @@ export function UrlInput({ onAnalyze, isAnalyzing, compact = false }: UrlInputPr
         </div>
         
         <Input
-          type="url"
-          placeholder="Enter website URL to mockify (e.g., https://example.com)..."
+          type="text"
+          placeholder="Enter website URL (e.g., example.com or https://example.com)"
           className={cn(
             "pl-11 pr-32 border-none shadow-none focus-visible:ring-0 bg-transparent font-mono text-sm",
             compact ? "h-10" : "h-14 text-base"

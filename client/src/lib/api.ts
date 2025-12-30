@@ -11,12 +11,41 @@ export interface AnalysisJob {
   pageDescription?: string;
   responsiveScore?: number;
   readabilityScore?: number;
+  consensusScore?: number;
+  accessibilityScore?: number;
+  performanceScore?: number;
   mobileConversion?: string;
   suggestions?: AISuggestion[];
   aiAnalysis?: AIAnalysisResult;
   errorMessage?: string;
   createdAt: string;
   completedAt?: string;
+}
+
+export interface DesignVersion {
+  id: string;
+  jobId: string;
+  version: number;
+  consensusScore?: number;
+  responsiveScore?: number;
+  readabilityScore?: number;
+  accessibilityScore?: number;
+  performanceScore?: number;
+  mobileHtml?: string;
+  agentEvaluations?: AgentEvaluation[];
+  suggestions?: AISuggestion[];
+  iterationReason?: string;
+  isSelected?: boolean;
+  createdAt: string;
+}
+
+export interface AgentEvaluation {
+  agent: "openai" | "anthropic" | "gemini";
+  responsiveScore: number;
+  readabilityScore: number;
+  overallScore: number;
+  feedback: string;
+  suggestions: AISuggestion[];
 }
 
 export interface AISuggestion {
@@ -143,6 +172,27 @@ export async function deleteDesign(id: string): Promise<void> {
     throw new Error(error.error || "Failed to delete design");
   }
   queryClient.invalidateQueries({ queryKey: ["designs"] });
+}
+
+// Design Versions API
+export async function getDesignVersions(jobId: string): Promise<DesignVersion[]> {
+  const res = await fetch(`${API_BASE}/versions/${jobId}`);
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || "Failed to get design versions");
+  }
+  return res.json();
+}
+
+export async function selectDesignVersion(versionId: string): Promise<DesignVersion> {
+  const res = await fetch(`${API_BASE}/versions/${versionId}/select`, {
+    method: "POST",
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || "Failed to select version");
+  }
+  return res.json();
 }
 
 // Polling helper for analysis status

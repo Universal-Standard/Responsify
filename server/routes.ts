@@ -7,7 +7,7 @@ import {
   updateDesignRequestSchema 
 } from "@shared/schema";
 import { fetchWebsite, extractWebsiteContent } from "./services/websiteFetcher";
-import { analyzeAndConvert, generateMobileHtml } from "./services/aiConverter";
+import { runMultiAgentAnalysis, generateConsensusHtml } from "./services/multiAgentOrchestrator";
 import { ZodError } from "zod";
 
 export async function registerRoutes(
@@ -83,6 +83,9 @@ export async function registerRoutes(
         pageDescription: job.pageDescription,
         responsiveScore: job.responsiveScore,
         readabilityScore: job.readabilityScore,
+        consensusScore: job.consensusScore,
+        accessibilityScore: job.accessibilityScore,
+        performanceScore: job.performanceScore,
         mobileConversion: job.mobileConversion,
         suggestions: job.suggestions,
         aiAnalysis: job.aiAnalysis,
@@ -213,11 +216,48 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // DESIGN VERSIONS ENDPOINTS
+  // ============================================
+
+  /**
+   * GET /api/versions/:jobId
+   * Get all design versions for an analysis job
+   */
+  app.get("/api/versions/:jobId", async (req, res) => {
+    try {
+      const { jobId } = req.params;
+      const versions = await storage.getDesignVersions(jobId);
+      res.json(versions);
+    } catch (error) {
+      handleError(res, error, "Failed to get design versions");
+    }
+  });
+
+  /**
+   * POST /api/versions/:versionId/select
+   * Select a specific version as the active design
+   */
+  app.post("/api/versions/:versionId/select", async (req, res) => {
+    try {
+      const { versionId } = req.params;
+      const version = await storage.selectDesignVersion(versionId);
+      
+      if (!version) {
+        return res.status(404).json({ error: "Version not found" });
+      }
+      
+      res.json(version);
+    } catch (error) {
+      handleError(res, error, "Failed to select version");
+    }
+  });
+
   return httpServer;
 }
 
 /**
- * Process website analysis asynchronously
+ * Process website analysis asynchronously using multi-agent orchestration
  */
 async function processAnalysis(jobId: string, url: string): Promise<void> {
   try {
@@ -238,28 +278,59 @@ async function processAnalysis(jobId: string, url: string): Promise<void> {
     const extractedContent = extractWebsiteContent(fetchResult.html);
     
     await storage.updateAnalysisJob(jobId, {
-      rawHtml: fetchResult.html.substring(0, 50000), // Limit storage size
+      rawHtml: fetchResult.html.substring(0, 50000),
       pageTitle: fetchResult.title,
       pageDescription: fetchResult.description,
       extractedElements: extractedContent as any,
       status: "converting",
     });
 
-    // Step 3: AI Analysis and conversion
-    const aiResult = await analyzeAndConvert(url, extractedContent, fetchResult.html);
+    // Step 3: Multi-agent AI analysis with consensus
+    console.log(`[${jobId}] Starting multi-agent analysis...`);
     
-    // Step 4: Generate mobile HTML
-    const mobileHtml = generateMobileHtml(aiResult, fetchResult.title || "Mobile Version");
+    const consensusResult = await runMultiAgentAnalysis(url, extractedContent);
+    
+    // Step 4: Generate mobile HTML from consensus
+    const mobileHtml = generateConsensusHtml(
+      consensusResult, 
+      fetchResult.title || "Mobile Version"
+    );
 
-    // Step 5: Save results
+    // Step 5: Save initial design version
+    await storage.createDesignVersion({
+      jobId,
+      version: 1,
+      consensusScore: consensusResult.consensusScore,
+      responsiveScore: consensusResult.responsiveScore,
+      readabilityScore: consensusResult.readabilityScore,
+      accessibilityScore: consensusResult.accessibilityScore,
+      performanceScore: consensusResult.performanceScore,
+      mobileHtml,
+      agentEvaluations: consensusResult.evaluations as any,
+      suggestions: consensusResult.suggestions as any,
+      isSelected: true,
+    });
+
+    // Step 6: Save final results to analysis job
     await storage.updateAnalysisJob(jobId, {
       status: "completed",
-      aiAnalysis: aiResult as any,
+      aiAnalysis: {
+        evaluations: consensusResult.evaluations,
+        accessibilityAudit: consensusResult.accessibilityAudit,
+        performanceInsights: consensusResult.performanceInsights,
+        colorPalette: consensusResult.colorPalette,
+        typography: consensusResult.typography,
+      } as any,
       mobileConversion: mobileHtml,
-      suggestions: aiResult.suggestions as any,
-      responsiveScore: aiResult.responsiveScore,
-      readabilityScore: aiResult.readabilityScore,
+      suggestions: consensusResult.suggestions as any,
+      responsiveScore: consensusResult.responsiveScore,
+      readabilityScore: consensusResult.readabilityScore,
+      consensusScore: consensusResult.consensusScore,
+      accessibilityScore: consensusResult.accessibilityScore,
+      performanceScore: consensusResult.performanceScore,
     });
+
+    console.log(`[${jobId}] Analysis completed with consensus score: ${consensusResult.consensusScore}`);
 
   } catch (error: any) {
     console.error("Analysis processing error:", error);

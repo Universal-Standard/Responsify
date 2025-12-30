@@ -1,7 +1,8 @@
 import { 
   users, type User, type InsertUser,
   savedDesigns, type SavedDesign, type InsertSavedDesign,
-  analysisJobs, type AnalysisJob, type InsertAnalysisJob, type UpdateAnalysisJob
+  analysisJobs, type AnalysisJob, type InsertAnalysisJob, type UpdateAnalysisJob,
+  designVersions, type DesignVersion, type InsertDesignVersion
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, sql } from "drizzle-orm";
@@ -24,6 +25,12 @@ export interface IStorage {
   updateSavedDesign(id: string, updates: Partial<InsertSavedDesign>): Promise<SavedDesign | undefined>;
   deleteSavedDesign(id: string): Promise<boolean>;
   incrementViewCount(id: string): Promise<void>;
+  
+  // Design Versions
+  createDesignVersion(version: InsertDesignVersion): Promise<DesignVersion>;
+  getDesignVersions(jobId: string): Promise<DesignVersion[]>;
+  getDesignVersion(id: string): Promise<DesignVersion | undefined>;
+  selectDesignVersion(id: string): Promise<DesignVersion | undefined>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -97,6 +104,40 @@ export class DatabaseStorage implements IStorage {
       .update(savedDesigns)
       .set({ viewCount: sql`${savedDesigns.viewCount} + 1` })
       .where(eq(savedDesigns.id, id));
+  }
+
+  // Design Versions
+  async createDesignVersion(version: InsertDesignVersion): Promise<DesignVersion> {
+    const [created] = await db.insert(designVersions).values(version).returning();
+    return created;
+  }
+
+  async getDesignVersions(jobId: string): Promise<DesignVersion[]> {
+    return await db.select().from(designVersions)
+      .where(eq(designVersions.jobId, jobId))
+      .orderBy(desc(designVersions.version));
+  }
+
+  async getDesignVersion(id: string): Promise<DesignVersion | undefined> {
+    const [version] = await db.select().from(designVersions).where(eq(designVersions.id, id));
+    return version || undefined;
+  }
+
+  async selectDesignVersion(id: string): Promise<DesignVersion | undefined> {
+    const version = await this.getDesignVersion(id);
+    if (!version) return undefined;
+    
+    // Deselect all versions for this job
+    await db.update(designVersions)
+      .set({ isSelected: false })
+      .where(eq(designVersions.jobId, version.jobId));
+    
+    // Select this version
+    const [updated] = await db.update(designVersions)
+      .set({ isSelected: true })
+      .where(eq(designVersions.id, id))
+      .returning();
+    return updated;
   }
 }
 

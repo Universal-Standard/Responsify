@@ -83,6 +83,9 @@ export const analysisJobs = pgTable("analysis_jobs", {
   // Scores
   responsiveScore: integer("responsive_score"),
   readabilityScore: integer("readability_score"),
+  consensusScore: integer("consensus_score"),
+  accessibilityScore: integer("accessibility_score"),
+  performanceScore: integer("performance_score"),
   
   // Error tracking
   errorMessage: text("error_message"),
@@ -114,13 +117,22 @@ export type UpdateAnalysisJob = Partial<{
   suggestions: unknown;
   responsiveScore: number | null;
   readabilityScore: number | null;
+  consensusScore: number | null;
+  accessibilityScore: number | null;
+  performanceScore: number | null;
   errorMessage: string | null;
   completedAt: Date | null;
 }>;
 
 // Request/response schemas for API validation
 export const analyzeUrlRequestSchema = z.object({
-  url: z.string().url("Please enter a valid URL"),
+  url: z.string().min(1, "Please enter a URL").transform((val) => {
+    const trimmed = val.trim();
+    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+      return "https://" + trimmed;
+    }
+    return trimmed;
+  }),
 });
 
 export const saveDesignRequestSchema = z.object({
@@ -166,3 +178,38 @@ export type Conversation = typeof conversations.$inferSelect;
 export type InsertConversation = z.infer<typeof insertConversationSchema>;
 export type Message = typeof messages.$inferSelect;
 export type InsertMessage = z.infer<typeof insertMessageSchema>;
+
+// Design versions table (for iteration history)
+export const designVersions = pgTable("design_versions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  jobId: varchar("job_id").notNull(),
+  version: integer("version").notNull().default(1),
+  
+  // Consensus data
+  consensusScore: integer("consensus_score"),
+  responsiveScore: integer("responsive_score"),
+  readabilityScore: integer("readability_score"),
+  accessibilityScore: integer("accessibility_score"),
+  performanceScore: integer("performance_score"),
+  
+  // Generated content
+  mobileHtml: text("mobile_html"),
+  
+  // Agent evaluations
+  agentEvaluations: jsonb("agent_evaluations"),
+  suggestions: jsonb("suggestions"),
+  
+  // Iteration metadata
+  iterationReason: text("iteration_reason"),
+  isSelected: boolean("is_selected").default(false),
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export const insertDesignVersionSchema = createInsertSchema(designVersions).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type DesignVersion = typeof designVersions.$inferSelect;
+export type InsertDesignVersion = z.infer<typeof insertDesignVersionSchema>;
