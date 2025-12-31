@@ -280,7 +280,9 @@ async function createOrUpdateGist(
       gist_id: existingGistId,
       files,
     });
-    return { id: gist.data.id!, html_url: gist.data.html_url! };
+    const id = gist.data.id || existingGistId;
+    const html_url = gist.data.html_url || `https://gist.github.com/${existingGistId}`;
+    return { id, html_url };
   } else {
     // Create new gist
     const gist = await octokit.gists.create({
@@ -288,7 +290,10 @@ async function createOrUpdateGist(
       public: false,
       files,
     });
-    return { id: gist.data.id!, html_url: gist.data.html_url! };
+    if (!gist.data.id || !gist.data.html_url) {
+      throw new Error("Failed to create gist: missing id or url in response");
+    }
+    return { id: gist.data.id, html_url: gist.data.html_url };
   }
 }
 
@@ -332,9 +337,9 @@ function parseIssueData(issue: any): AnalysisJobData {
   if (gistMatch) {
     const gistUrl = gistMatch[2];
     // Extract gist ID from URL (handles gist.github.com/username/gistid and raw gist URLs)
-    // Gist IDs are 32-character hexadecimal strings (case-insensitive)
-    const gistIdMatch = gistUrl.match(/gist\.github\.com\/[^\/]+\/([a-fA-F0-9]{32})/i) ||
-                        gistUrl.match(/gist\.github\.com\/([a-fA-F0-9]{32})/i);
+    // Gist IDs are 32-character lowercase hexadecimal strings
+    const gistIdMatch = gistUrl.match(/gist\.github\.com\/[^\/]+\/([0-9a-f]{32})/) ||
+                        gistUrl.match(/gist\.github\.com\/([0-9a-f]{32})/);
     if (gistIdMatch) {
       data.gistId = gistIdMatch[1];
       data.gistUrl = gistUrl;

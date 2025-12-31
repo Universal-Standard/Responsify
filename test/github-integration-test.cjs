@@ -75,11 +75,11 @@ try {
   hasErrors = true;
   // Show compilation errors from both stdout and stderr
   console.log("\n   Compilation errors:");
-  if (e.stdout && e.stdout.length > 0) {
+  if (e.stdout && Buffer.isBuffer(e.stdout) && e.stdout.length > 0) {
     const output = e.stdout.toString();
     console.log(output.split('\n').slice(0, 15).map(line => `     ${line}`).join('\n'));
   }
-  if (e.stderr && e.stderr.length > 0) {
+  if (e.stderr && Buffer.isBuffer(e.stderr) && e.stderr.length > 0) {
     const output = e.stderr.toString();
     console.log(output.split('\n').slice(0, 15).map(line => `     ${line}`).join('\n'));
   }

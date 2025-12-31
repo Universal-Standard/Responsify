@@ -4,7 +4,7 @@
  */
 
 import type { Express } from "express";
-import { createServer, type Server } from "http";
+import type { Server } from "http";
 import { 
   analyzeUrlRequestSchema, 
 } from "@shared/schema";
@@ -22,15 +22,17 @@ import {
 } from "./services/githubStorage";
 import { ZodError } from "zod";
 
-// Initialize GitHub labels on startup
-initializeGitHubLabels().catch(err => {
-  console.error("Failed to initialize GitHub labels:", err);
-});
-
 export async function registerGitHubRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  // Ensure GitHub labels are initialized before registering routes
+  try {
+    await initializeGitHubLabels();
+  } catch (err) {
+    console.error("Failed to initialize GitHub labels:", err);
+    // Continue anyway - labels can be created manually if needed
+  }
   
   // Error handler helper
   const handleError = (res: any, error: any, defaultMessage: string) => {
@@ -181,7 +183,7 @@ async function processGitHubAnalysis(jobId: string, url: string): Promise<void> 
     const extractedContent = extractWebsiteContent(fetchResult.html);
     
     await updateAnalysisJob(jobId, {
-      rawHtml: fetchResult.html.substring(0, 50000),
+      rawHtml: fetchResult.html.slice(0, 50000),
       pageTitle: fetchResult.title,
       pageDescription: fetchResult.description,
       extractedElements: extractedContent as any,

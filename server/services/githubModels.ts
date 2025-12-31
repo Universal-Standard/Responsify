@@ -12,18 +12,24 @@ import type {
   MobileLayoutSection 
 } from "./aiConverter";
 
+// Validate GitHub token
+const githubToken = process.env.GITHUB_TOKEN;
+if (!githubToken) {
+  throw new Error("Environment variable GITHUB_TOKEN is required for GitHub Models API access.");
+}
+
 // GitHub Models API client (compatible with OpenAI SDK)
 const githubModels = new OpenAI({
   baseURL: "https://models.inference.ai.azure.com",
-  apiKey: process.env.GITHUB_TOKEN!,
+  apiKey: githubToken,
 });
 
 // Available models on GitHub
 const MODELS = {
   GPT4O: "gpt-4o",
   GPT4O_MINI: "gpt-4o-mini", 
-  CLAUDE_SONNET: "claude-sonnet-4-5",
-  GEMINI_FLASH: "gemini-2.5-flash",
+  CLAUDE_SONNET: "claude-3-5-sonnet",
+  GEMINI_FLASH: "gemini-1.5-flash",
   LLAMA: "meta-llama-3.3-70b-instruct",
 } as const;
 
@@ -560,8 +566,15 @@ function mergeSuggestions(evaluations: GitHubAgentEvaluation[]): AISuggestion[] 
     }
   }
 
-  const priorityOrder = { high: 0, medium: 1, low: 2 };
-  return unique.sort((a, b) => priorityOrder[a.priority] - priorityOrder[b.priority]).slice(0, 6);
+  // Sort by priority with safe fallback
+  const priorityOrder: Record<string, number> = { high: 0, medium: 1, low: 2 };
+  return unique
+    .sort((a, b) => {
+      const aPriority = priorityOrder[a.priority] ?? 3;
+      const bPriority = priorityOrder[b.priority] ?? 3;
+      return aPriority - bPriority;
+    })
+    .slice(0, 6);
 }
 
 /**
