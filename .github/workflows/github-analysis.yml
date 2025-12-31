@@ -58,12 +58,13 @@ jobs:
           
           echo "Server started with PID: $SERVER_PID"
           
-          # Wait for server to be ready with timeout
+          # Wait for server to be ready with exponential backoff
           echo "Waiting for server to start..."
-          MAX_ATTEMPTS=30
+          MAX_ATTEMPTS=20
+          DELAY=1
           for i in $(seq 1 $MAX_ATTEMPTS); do
             if curl -s http://localhost:5000/api/github/health > /dev/null 2>&1; then
-              echo "Server is ready!"
+              echo "✅ Server is ready after ${i} attempts!"
               break
             fi
             
@@ -75,13 +76,17 @@ jobs:
             fi
             
             if [ $i -eq $MAX_ATTEMPTS ]; then
-              echo "❌ Server failed to start within timeout. Check logs:"
+              echo "❌ Server failed to start within timeout (tried for ~60s). Check logs:"
               cat server.log
               kill $SERVER_PID 2>/dev/null || true
               exit 1
             fi
             
-            sleep 1
+            # Exponential backoff: 1s, 2s, 4s, 8s, then 8s max
+            sleep $DELAY
+            if [ $DELAY -lt 8 ]; then
+              DELAY=$((DELAY * 2))
+            fi
           done
           
           # Trigger analysis

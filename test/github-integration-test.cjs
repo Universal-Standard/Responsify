@@ -73,10 +73,15 @@ try {
 } catch (e) {
   console.log("   TypeScript: ❌ Has errors");
   hasErrors = true;
-  // Show compilation errors if they exist
-  if (e.stderr) {
-    console.log("\n   Compilation errors:");
-    console.log(e.stderr.toString().split('\n').slice(0, 10).map(line => `     ${line}`).join('\n'));
+  // Show compilation errors from both stdout and stderr
+  console.log("\n   Compilation errors:");
+  if (e.stdout && e.stdout.length > 0) {
+    const output = e.stdout.toString();
+    console.log(output.split('\n').slice(0, 15).map(line => `     ${line}`).join('\n'));
+  }
+  if (e.stderr && e.stderr.length > 0) {
+    const output = e.stderr.toString();
+    console.log(output.split('\n').slice(0, 15).map(line => `     ${line}`).join('\n'));
   }
   console.log("   Run 'npm run check' for full details");
 }
