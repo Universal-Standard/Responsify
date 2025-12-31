@@ -53,16 +53,34 @@ jobs:
           GITHUB_REPO_NAME: ${{ github.event.repository.name }}
         run: |
           # Start the server in background
-          node dist/index.cjs &
+          node dist/index.cjs > server.log 2>&1 &
           SERVER_PID=$!
           
-          # Wait for server to be ready
+          echo "Server started with PID: $SERVER_PID"
+          
+          # Wait for server to be ready with timeout
           echo "Waiting for server to start..."
-          for i in {1..30}; do
-            if curl -s http://localhost:5000/api/github/health > /dev/null; then
+          MAX_ATTEMPTS=30
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            if curl -s http://localhost:5000/api/github/health > /dev/null 2>&1; then
               echo "Server is ready!"
               break
             fi
+            
+            # Check if server process is still running
+            if ! kill -0 $SERVER_PID 2>/dev/null; then
+              echo "❌ Server failed to start. Check logs:"
+              cat server.log
+              exit 1
+            fi
+            
+            if [ $i -eq $MAX_ATTEMPTS ]; then
+              echo "❌ Server failed to start within timeout. Check logs:"
+              cat server.log
+              kill $SERVER_PID 2>/dev/null || true
+              exit 1
+            fi
+            
             sleep 1
           done
           

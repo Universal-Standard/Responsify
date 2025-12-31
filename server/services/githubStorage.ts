@@ -331,9 +331,11 @@ function parseIssueData(issue: any): AnalysisJobData {
   const gistMatch = body.match(/\*\*Gist:\*\*\s*\[([^\]]+)\]\(([^)]+)\)/);
   if (gistMatch) {
     const gistUrl = gistMatch[2];
-    const gistId = gistUrl.split("/").pop();
-    if (gistId) {
-      data.gistId = gistId;
+    // Extract gist ID from URL (handles gist.github.com/username/gistid and raw gist URLs)
+    const gistIdMatch = gistUrl.match(/gist\.github\.com\/[^\/]+\/([a-f0-9]+)/i) ||
+                        gistUrl.match(/gist\.github\.com\/([a-f0-9]+)/i);
+    if (gistIdMatch) {
+      data.gistId = gistIdMatch[1];
       data.gistUrl = gistUrl;
     }
   }

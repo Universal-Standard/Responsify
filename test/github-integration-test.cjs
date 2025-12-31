@@ -72,8 +72,13 @@ try {
   console.log("   TypeScript: ✅ No errors");
 } catch (e) {
   console.log("   TypeScript: ❌ Has errors");
-  console.log("   Run 'npm run check' for details");
   hasErrors = true;
+  // Show compilation errors if they exist
+  if (e.stderr) {
+    console.log("\n   Compilation errors:");
+    console.log(e.stderr.toString().split('\n').slice(0, 10).map(line => `     ${line}`).join('\n'));
+  }
+  console.log("   Run 'npm run check' for full details");
 }
 
 if (hasErrors) {
