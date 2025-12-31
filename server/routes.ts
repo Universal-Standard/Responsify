@@ -127,10 +127,10 @@ export async function registerRoutes(
         readabilityScore: job.readabilityScore,
         pageTitle: job.pageTitle,
         pageDescription: job.pageDescription,
-        extractedContent: job.extractedElements,
+        extractedContent: (job.extractedElements || {}) as any,
         mobileHtml: job.mobileConversion,
         mobileStyles: null,
-        aiSuggestions: job.suggestions,
+        aiSuggestions: (job.suggestions || []) as any,
         isStarred: false,
         viewCount: 0,
       });
