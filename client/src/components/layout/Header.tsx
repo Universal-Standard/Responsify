@@ -1,5 +1,6 @@
-import { Zap, Layout, Save, Settings, User } from "lucide-react";
+import { Zap, Layout, Save } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { UserMenu } from "@/components/auth/UserMenu";
 import { useLocation } from "wouter";
 
 export function Header() {
@@ -22,10 +23,10 @@ export function Header() {
           size="sm" 
           className="text-muted-foreground hover:text-foreground"
           onClick={() => navigate("/")}
-          data-testid="nav-dashboard"
+          data-testid="nav-analyze"
         >
-          <Layout className="w-4 h-4 mr-2" />
-          Dashboard
+          <Zap className="w-4 h-4 mr-2" />
+          Analyze
         </Button>
         <Button 
           variant={location === "/library" ? "secondary" : "ghost"} 
@@ -37,16 +38,20 @@ export function Header() {
           <Save className="w-4 h-4 mr-2" />
           Library
         </Button>
+        <Button 
+          variant={location === "/dashboard" ? "secondary" : "ghost"} 
+          size="sm" 
+          className="text-muted-foreground hover:text-foreground"
+          onClick={() => navigate("/dashboard")}
+          data-testid="nav-dashboard"
+        >
+          <Layout className="w-4 h-4 mr-2" />
+          Dashboard
+        </Button>
       </nav>
 
       <div className="flex items-center gap-2">
-        <Button variant="ghost" size="icon" className="text-muted-foreground" data-testid="btn-settings">
-          <Settings className="w-5 h-5" />
-        </Button>
-        <div className="w-px h-6 bg-border mx-1"></div>
-        <Button variant="ghost" size="icon" className="rounded-full bg-secondary/10 text-secondary hover:bg-secondary/20 hover:text-secondary" data-testid="btn-profile">
-          <User className="w-5 h-5" />
-        </Button>
+        <UserMenu />
       </div>
     </header>
   );
