@@ -1,4 +1,4 @@
-import { Zap, Layout, Save } from "lucide-react";
+import { Zap, Layout, Save, History, FolderKanban } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { useLocation } from "wouter";
@@ -29,14 +29,24 @@ export function Header() {
           Analyze
         </Button>
         <Button 
-          variant={location === "/library" ? "secondary" : "ghost"} 
+          variant={location === "/history" ? "secondary" : "ghost"} 
           size="sm" 
           className="text-muted-foreground hover:text-foreground"
-          onClick={() => navigate("/library")}
-          data-testid="nav-library"
+          onClick={() => navigate("/history")}
+          data-testid="nav-history"
         >
-          <Save className="w-4 h-4 mr-2" />
-          Library
+          <History className="w-4 h-4 mr-2" />
+          History
+        </Button>
+        <Button 
+          variant={location === "/projects" ? "secondary" : "ghost"} 
+          size="sm" 
+          className="text-muted-foreground hover:text-foreground"
+          onClick={() => navigate("/projects")}
+          data-testid="nav-projects"
+        >
+          <FolderKanban className="w-4 h-4 mr-2" />
+          Projects
         </Button>
         <Button 
           variant={location === "/dashboard" ? "secondary" : "ghost"} 

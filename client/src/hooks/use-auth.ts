@@ -6,10 +6,12 @@ export interface User {
   username: string | null;
   email: string | null;
   displayName: string | null;
+  bio: string | null;
   githubUsername: string | null;
   githubAvatarUrl: string | null;
   role: string;
   subscriptionTier: string | null;
+  analysisCount: number;
 }
 
 export interface Session {
