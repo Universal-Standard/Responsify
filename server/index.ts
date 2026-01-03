@@ -1,6 +1,10 @@
 import express, { type Request, Response, NextFunction } from "express";
+import session from "express-session";
+import pgSession from "connect-pg-simple";
+import { pool } from "./db";
 import { registerRoutes } from "./routes";
 import { registerGitHubRoutes } from "./githubRoutes";
+import authRoutes from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 
@@ -12,6 +16,28 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+// Session configuration
+const PostgresStore = pgSession(session);
+
+app.use(
+  session({
+    store: new PostgresStore({
+      pool: pool,
+      tableName: "session",
+      createTableIfMissing: true,
+    }),
+    secret: process.env.SESSION_SECRET || "development-secret-change-in-production",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      sameSite: "lax",
+    },
+  })
+);
 
 app.use(
   express.json({
@@ -61,6 +87,9 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Register authentication routes
+  app.use("/api/auth", authRoutes);
+  
   await registerRoutes(httpServer, app);
   await registerGitHubRoutes(httpServer, app);
 
