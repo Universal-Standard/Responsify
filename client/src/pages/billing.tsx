@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { useQuery } from "@tanstack/react-query";
 import { Check, Zap, Crown, Building2, Loader2 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { isValidStripeUrl } from "@/lib/utils";
 
 interface SubscriptionPlan {
   id: string;
@@ -51,18 +52,10 @@ export default function Billing() {
 
       const { url } = await response.json();
       
-      // Validate that the URL is from Stripe before redirecting
-      // Check for exact Stripe domain matches to prevent subdomain attacks
-      try {
-        const urlObj = new URL(url);
-        const validDomains = ['checkout.stripe.com', 'billing.stripe.com'];
-        
-        if (validDomains.includes(urlObj.hostname) && urlObj.protocol === 'https:') {
-          window.location.href = url;
-        } else {
-          throw new Error("Invalid redirect URL domain");
-        }
-      } catch (urlError) {
+      // Validate Stripe URL before redirecting
+      if (isValidStripeUrl(url)) {
+        window.location.href = url;
+      } else {
         throw new Error("Invalid redirect URL received");
       }
     } catch (error: any) {
@@ -89,18 +82,10 @@ export default function Billing() {
 
       const { url } = await response.json();
       
-      // Validate that the URL is from Stripe before redirecting
-      // Check for exact Stripe domain matches to prevent subdomain attacks
-      try {
-        const urlObj = new URL(url);
-        const validDomains = ['checkout.stripe.com', 'billing.stripe.com'];
-        
-        if (validDomains.includes(urlObj.hostname) && urlObj.protocol === 'https:') {
-          window.location.href = url;
-        } else {
-          throw new Error("Invalid redirect URL domain");
-        }
-      } catch (urlError) {
+      // Validate Stripe URL before redirecting
+      if (isValidStripeUrl(url)) {
+        window.location.href = url;
+      } else {
         throw new Error("Invalid redirect URL received");
       }
     } catch (error: any) {
