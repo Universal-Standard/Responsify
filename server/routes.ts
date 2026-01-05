@@ -281,8 +281,8 @@ export async function registerRoutes(
       
       // DEMO MODE - Only allow in development
       if (process.env.NODE_ENV === 'production') {
-        return res.status(501).json({ 
-          error: "Billing integration requires authentication system. Please implement user authentication before using this feature in production." 
+        return res.status(503).json({ 
+          error: "Billing integration requires authentication. This feature is unavailable until user authentication is implemented." 
         });
       }
       
@@ -319,8 +319,8 @@ export async function registerRoutes(
       
       // DEMO MODE - Only allow in development
       if (process.env.NODE_ENV === 'production') {
-        return res.status(501).json({ 
-          error: "Billing portal requires authentication system. Please implement user authentication before using this feature in production." 
+        return res.status(503).json({ 
+          error: "Billing portal requires authentication. This feature is unavailable until user authentication is implemented." 
         });
       }
       
