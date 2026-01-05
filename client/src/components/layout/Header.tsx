@@ -1,6 +1,5 @@
-import { Zap, Layout, Save, History, FolderKanban, BarChart3 } from "lucide-react";
+import { Zap, Layout, Save, Settings, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { UserMenu } from "@/components/auth/UserMenu";
 import { useLocation } from "wouter";
 
 export function Header() {
@@ -23,55 +22,31 @@ export function Header() {
           size="sm" 
           className="text-muted-foreground hover:text-foreground"
           onClick={() => navigate("/")}
-          data-testid="nav-analyze"
-        >
-          <Zap className="w-4 h-4 mr-2" />
-          Analyze
-        </Button>
-        <Button 
-          variant={location === "/history" ? "secondary" : "ghost"} 
-          size="sm" 
-          className="text-muted-foreground hover:text-foreground"
-          onClick={() => navigate("/history")}
-          data-testid="nav-history"
-        >
-          <History className="w-4 h-4 mr-2" />
-          History
-        </Button>
-        <Button 
-          variant={location === "/projects" ? "secondary" : "ghost"} 
-          size="sm" 
-          className="text-muted-foreground hover:text-foreground"
-          onClick={() => navigate("/projects")}
-          data-testid="nav-projects"
-        >
-          <FolderKanban className="w-4 h-4 mr-2" />
-          Projects
-        </Button>
-        <Button 
-          variant={location === "/analytics" ? "secondary" : "ghost"} 
-          size="sm" 
-          className="text-muted-foreground hover:text-foreground"
-          onClick={() => navigate("/analytics")}
-          data-testid="nav-analytics"
-        >
-          <BarChart3 className="w-4 h-4 mr-2" />
-          Analytics
-        </Button>
-        <Button 
-          variant={location === "/dashboard" ? "secondary" : "ghost"} 
-          size="sm" 
-          className="text-muted-foreground hover:text-foreground"
-          onClick={() => navigate("/dashboard")}
           data-testid="nav-dashboard"
         >
           <Layout className="w-4 h-4 mr-2" />
           Dashboard
         </Button>
+        <Button 
+          variant={location === "/library" ? "secondary" : "ghost"} 
+          size="sm" 
+          className="text-muted-foreground hover:text-foreground"
+          onClick={() => navigate("/library")}
+          data-testid="nav-library"
+        >
+          <Save className="w-4 h-4 mr-2" />
+          Library
+        </Button>
       </nav>
 
       <div className="flex items-center gap-2">
-        <UserMenu />
+        <Button variant="ghost" size="icon" className="text-muted-foreground" data-testid="btn-settings">
+          <Settings className="w-5 h-5" />
+        </Button>
+        <div className="w-px h-6 bg-border mx-1"></div>
+        <Button variant="ghost" size="icon" className="rounded-full bg-secondary/10 text-secondary hover:bg-secondary/20 hover:text-secondary" data-testid="btn-profile">
+          <User className="w-5 h-5" />
+        </Button>
       </div>
     </header>
   );
