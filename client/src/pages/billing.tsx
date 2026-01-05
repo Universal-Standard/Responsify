@@ -50,7 +50,13 @@ export default function Billing() {
       }
 
       const { url } = await response.json();
-      window.location.href = url;
+      
+      // Validate that the URL is from Stripe before redirecting
+      if (url && (url.startsWith('https://checkout.stripe.com/') || url.startsWith('https://billing.stripe.com/'))) {
+        window.location.href = url;
+      } else {
+        throw new Error("Invalid redirect URL received");
+      }
     } catch (error: any) {
       toast({
         title: "Error",
@@ -74,7 +80,13 @@ export default function Billing() {
       }
 
       const { url } = await response.json();
-      window.location.href = url;
+      
+      // Validate that the URL is from Stripe before redirecting
+      if (url && (url.startsWith('https://checkout.stripe.com/') || url.startsWith('https://billing.stripe.com/'))) {
+        window.location.href = url;
+      } else {
+        throw new Error("Invalid redirect URL received");
+      }
     } catch (error: any) {
       toast({
         title: "Error",

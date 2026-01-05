@@ -262,6 +262,7 @@ export async function registerRoutes(
   /**
    * POST /api/billing/create-checkout-session
    * Create a Stripe Checkout session for subscription
+   * TODO: Integrate with actual authentication system before production
    */
   app.post("/api/billing/create-checkout-session", async (req, res) => {
     try {
@@ -270,7 +271,15 @@ export async function registerRoutes(
       
       const { priceId } = createCheckoutSessionSchema.parse(req.body);
       
-      // TODO: Get actual user ID from session
+      // TODO: Replace with actual user from authenticated session
+      // For now, return error if authentication is not implemented
+      // const userId = req.session?.user?.id;
+      // const userEmail = req.session?.user?.email;
+      // if (!userId || !userEmail) {
+      //   return res.status(401).json({ error: "Authentication required" });
+      // }
+      
+      // Demo mode - remove before production
       const userId = "demo-user-id";
       const userEmail = "demo@example.com";
       
@@ -285,6 +294,7 @@ export async function registerRoutes(
   /**
    * POST /api/billing/create-portal-session
    * Create a Stripe Customer Portal session
+   * TODO: Integrate with actual authentication system before production
    */
   app.post("/api/billing/create-portal-session", async (req, res) => {
     try {
@@ -293,7 +303,14 @@ export async function registerRoutes(
       
       const { returnUrl } = manageBillingPortalSchema.parse(req.body);
       
-      // TODO: Get customer ID from user's subscription
+      // TODO: Replace with actual customer ID from user's subscription
+      // const subscription = await storage.getUserSubscription(req.session?.user?.id);
+      // const customerId = subscription?.stripeCustomerId;
+      // if (!customerId) {
+      //   return res.status(404).json({ error: "No active subscription found" });
+      // }
+      
+      // Demo mode - remove before production
       const customerId = "demo-customer-id";
       
       const session = await createPortalSession(customerId, returnUrl);

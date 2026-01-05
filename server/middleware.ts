@@ -51,12 +51,21 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction) {
 /**
  * Input validation middleware
  * Sanitizes and validates request data
+ * Note: This provides basic XSS protection by removing script tags.
+ * For production, consider using a more comprehensive library like DOMPurify or validator.js
+ * to handle additional XSS vectors (event handlers, javascript: URLs, etc.)
  */
 export function validateRequest(req: Request, res: Response, next: NextFunction) {
-  // Basic XSS prevention: remove script tags from all string inputs
+  // Basic XSS prevention: remove script tags and common XSS patterns
   const sanitize = (obj: any): any => {
     if (typeof obj === 'string') {
-      return obj.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+      // Remove script tags
+      let cleaned = obj.replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '');
+      // Remove javascript: protocol
+      cleaned = cleaned.replace(/javascript:/gi, '');
+      // Remove on* event handlers
+      cleaned = cleaned.replace(/\s*on\w+\s*=\s*["'][^"']*["']/gi, '');
+      return cleaned;
     }
     if (Array.isArray(obj)) {
       return obj.map(sanitize);
