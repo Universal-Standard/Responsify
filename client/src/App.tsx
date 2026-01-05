@@ -9,6 +9,7 @@ import Library from "@/pages/library";
 import Settings from "@/pages/settings";
 import Analytics from "@/pages/analytics";
 import Documentation from "@/pages/documentation";
+import Compare from "@/pages/compare";
 
 function Router() {
   return (
@@ -18,6 +19,7 @@ function Router() {
       <Route path="/settings" component={Settings} />
       <Route path="/analytics" component={Analytics} />
       <Route path="/docs" component={Documentation} />
+      <Route path="/compare" component={Compare} />
       <Route component={NotFound} />
     </Switch>
   );

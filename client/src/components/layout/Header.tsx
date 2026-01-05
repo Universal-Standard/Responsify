@@ -1,4 +1,4 @@
-import { Zap, Layout, Save, Settings, User, BarChart3, BookOpen } from "lucide-react";
+import { Zap, Layout, Save, Settings, User, BarChart3, BookOpen, GitCompare } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useLocation } from "wouter";
 
@@ -36,6 +36,16 @@ export function Header() {
         >
           <Save className="w-4 h-4 mr-2" />
           Library
+        </Button>
+        <Button 
+          variant={location === "/compare" ? "secondary" : "ghost"} 
+          size="sm" 
+          className="text-muted-foreground hover:text-foreground"
+          onClick={() => navigate("/compare")}
+          data-testid="nav-compare"
+        >
+          <GitCompare className="w-4 h-4 mr-2" />
+          Compare
         </Button>
         <Button 
           variant={location === "/analytics" ? "secondary" : "ghost"} 
