@@ -127,10 +127,10 @@ export async function registerRoutes(
         readabilityScore: job.readabilityScore,
         pageTitle: job.pageTitle,
         pageDescription: job.pageDescription,
-        extractedContent: job.extractedElements,
+        extractedContent: (job.extractedElements || {}) as any,
         mobileHtml: job.mobileConversion,
         mobileStyles: null,
-        aiSuggestions: job.suggestions,
+        aiSuggestions: (job.suggestions || []) as any,
         isStarred: false,
         viewCount: 0,
       });
@@ -240,7 +240,7 @@ export async function registerRoutes(
    */
   app.post("/api/versions/:versionId/select", async (req, res) => {
     try {
-      const { versionId } = req.params;
+      const { versionId} = req.params;
       const version = await storage.selectDesignVersion(versionId);
       
       if (!version) {
@@ -250,6 +250,416 @@ export async function registerRoutes(
       res.json(version);
     } catch (error) {
       handleError(res, error, "Failed to select version");
+    }
+  });
+
+  // ============================================
+  // USER MANAGEMENT ENDPOINTS
+  // ============================================
+
+  /**
+   * GET /api/users/:userId/analyses
+   * Get user's analysis history with pagination and filtering
+   */
+  app.get("/api/users/:userId/analyses", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { page = '1', limit = '50', search = '', status = '', projectId = '' } = req.query;
+      
+      // In production, verify user is authenticated and authorized
+      // if (req.session?.user?.id !== userId) {
+      //   return res.status(403).json({ error: "Unauthorized" });
+      // }
+
+      const pageNum = parseInt(page as string);
+      const limitNum = parseInt(limit as string);
+      const offset = (pageNum - 1) * limitNum;
+
+      // Build query - this is a simplified version
+      // In production, use proper query builder or ORM
+      const analyses = await storage.db
+        .prepare(`
+          SELECT 
+            a.*,
+            ua.project_id,
+            ua.tags,
+            ua.notes,
+            ua.is_favorite,
+            ua.view_count,
+            p.name as project_name,
+            p.color as project_color
+          FROM analyses a
+          LEFT JOIN user_analyses ua ON a.id = ua.analysis_id
+          LEFT JOIN projects p ON ua.project_id = p.id
+          WHERE ua.user_id = ?
+            AND (? = '' OR a.url LIKE '%' || ? || '%')
+            AND (? = '' OR a.status = ?)
+            AND (? = '' OR ua.project_id = ?)
+          ORDER BY a.created_at DESC
+          LIMIT ? OFFSET ?
+        `)
+        .all(
+          userId,
+          search, search,
+          status, status,
+          projectId, projectId,
+          limitNum,
+          offset
+        );
+
+      const total = await storage.db
+        .prepare(`
+          SELECT COUNT(*) as count
+          FROM analyses a
+          LEFT JOIN user_analyses ua ON a.id = ua.analysis_id
+          WHERE ua.user_id = ?
+            AND (? = '' OR a.url LIKE '%' || ? || '%')
+            AND (? = '' OR a.status = ?)
+            AND (? = '' OR ua.project_id = ?)
+        `)
+        .get(
+          userId,
+          search, search,
+          status, status,
+          projectId, projectId
+        );
+
+      res.json({
+        success: true,
+        data: analyses,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total: (total as any)?.count || 0,
+        },
+      });
+    } catch (error) {
+      handleError(res, error, "Failed to get user analyses");
+    }
+  });
+
+  // ============================================
+  // PROJECTS ENDPOINTS
+  // ============================================
+
+  /**
+   * GET /api/projects
+   * Get all projects for the authenticated user
+   */
+  app.get("/api/projects", async (req, res) => {
+    try {
+      const userId = req.query.userId as string;
+      
+      if (!userId) {
+        return res.status(400).json({ error: "userId required" });
+      }
+
+      const projects = await storage.db
+        .prepare(`
+          SELECT 
+            p.*,
+            COUNT(DISTINCT ua.id) as analysis_count,
+            COUNT(DISTINCT pm.id) as member_count
+          FROM projects p
+          LEFT JOIN user_analyses ua ON p.id = ua.project_id
+          LEFT JOIN project_members pm ON p.id = pm.project_id
+          WHERE p.user_id = ?
+          GROUP BY p.id
+          ORDER BY p.created_at DESC
+        `)
+        .all(userId);
+
+      res.json({ success: true, data: projects });
+    } catch (error) {
+      handleError(res, error, "Failed to get projects");
+    }
+  });
+
+  /**
+   * POST /api/projects
+   * Create a new project
+   */
+  app.post("/api/projects", async (req, res) => {
+    try {
+      const { userId, name, description, color, icon } = req.body;
+
+      if (!userId || !name) {
+        return res.status(400).json({ error: "userId and name required" });
+      }
+
+      const result = await storage.db
+        .prepare(`
+          INSERT INTO projects (id, user_id, name, description, color, icon, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `)
+        .run(
+          crypto.randomUUID(),
+          userId,
+          name,
+          description || null,
+          color || '#6366f1',
+          icon || '📁'
+        );
+
+      const project = await storage.db
+        .prepare('SELECT * FROM projects WHERE id = ?')
+        .get(result.lastInsertRowid);
+
+      res.json({ success: true, data: project });
+    } catch (error) {
+      handleError(res, error, "Failed to create project");
+    }
+  });
+
+  /**
+   * PUT /api/projects/:projectId
+   * Update a project
+   */
+  app.put("/api/projects/:projectId", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+      const { name, description, color, icon } = req.body;
+
+      await storage.db
+        .prepare(`
+          UPDATE projects 
+          SET name = ?, description = ?, color = ?, icon = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `)
+        .run(name, description, color, icon, projectId);
+
+      const project = await storage.db
+        .prepare('SELECT * FROM projects WHERE id = ?')
+        .get(projectId);
+
+      res.json({ success: true, data: project });
+    } catch (error) {
+      handleError(res, error, "Failed to update project");
+    }
+  });
+
+  /**
+   * DELETE /api/projects/:projectId
+   * Delete a project
+   */
+  app.delete("/api/projects/:projectId", async (req, res) => {
+    try {
+      const { projectId } = req.params;
+
+      await storage.db
+        .prepare('DELETE FROM projects WHERE id = ?')
+        .run(projectId);
+
+      res.json({ success: true, message: "Project deleted" });
+    } catch (error) {
+      handleError(res, error, "Failed to delete project");
+    }
+  });
+
+  // ============================================
+  // USER PROFILE & PREFERENCES ENDPOINTS
+  // ============================================
+
+  /**
+   * PUT /api/users/:userId/profile
+   * Update user profile
+   */
+  app.put("/api/users/:userId/profile", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { displayName, bio } = req.body;
+
+      await storage.db
+        .prepare(`
+          UPDATE users 
+          SET display_name = ?, bio = ?, updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `)
+        .run(displayName, bio, userId);
+
+      const user = await storage.db
+        .prepare('SELECT * FROM users WHERE id = ?')
+        .get(userId);
+
+      res.json({ success: true, data: user });
+    } catch (error) {
+      handleError(res, error, "Failed to update profile");
+    }
+  });
+
+  /**
+   * GET /api/users/:userId/preferences
+   * Get user preferences
+   */
+  app.get("/api/users/:userId/preferences", async (req, res) => {
+    try {
+      const { userId } = req.params;
+
+      let preferences = await storage.db
+        .prepare('SELECT * FROM user_preferences WHERE user_id = ?')
+        .get(userId);
+
+      // Create default preferences if not exist
+      if (!preferences) {
+        await storage.db
+          .prepare(`
+            INSERT INTO user_preferences (
+              id, user_id, theme, compact_mode, email_notifications,
+              analysis_notifications, created_at, updated_at
+            ) VALUES (?, ?, 'system', 0, 1, 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          `)
+          .run(crypto.randomUUID(), userId);
+
+        preferences = await storage.db
+          .prepare('SELECT * FROM user_preferences WHERE user_id = ?')
+          .get(userId);
+      }
+
+      res.json({ success: true, data: preferences });
+    } catch (error) {
+      handleError(res, error, "Failed to get preferences");
+    }
+  });
+
+  /**
+   * PUT /api/users/:userId/preferences
+   * Update user preferences
+   */
+  app.put("/api/users/:userId/preferences", async (req, res) => {
+    try {
+      const { userId } = req.params;
+      const { 
+        theme, 
+        compactMode, 
+        emailNotifications, 
+        analysisNotifications 
+      } = req.body;
+
+      await storage.db
+        .prepare(`
+          INSERT INTO user_preferences (
+            id, user_id, theme, compact_mode, email_notifications, analysis_notifications, 
+            created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+          ON CONFLICT(user_id) DO UPDATE SET
+            theme = excluded.theme,
+            compact_mode = excluded.compact_mode,
+            email_notifications = excluded.email_notifications,
+            analysis_notifications = excluded.analysis_notifications,
+            updated_at = CURRENT_TIMESTAMP
+        `)
+        .run(
+          crypto.randomUUID(),
+          userId,
+          theme || 'system',
+          compactMode ? 1 : 0,
+          emailNotifications ? 1 : 0,
+          analysisNotifications ? 1 : 0
+        );
+
+      const preferences = await storage.db
+        .prepare('SELECT * FROM user_preferences WHERE user_id = ?')
+        .get(userId);
+
+      res.json({ success: true, data: preferences });
+    } catch (error) {
+      handleError(res, error, "Failed to update preferences");
+    }
+  });
+
+  // ============================================
+  // API KEYS ENDPOINTS
+  // ============================================
+
+  /**
+   * GET /api/api-keys
+   * Get user's API keys
+   */
+  app.get("/api/api-keys", async (req, res) => {
+    try {
+      const userId = req.query.userId as string;
+
+      if (!userId) {
+        return res.status(400).json({ error: "userId required" });
+      }
+
+      const keys = await storage.db
+        .prepare(`
+          SELECT id, name, scopes, last_used_at, created_at
+          FROM api_keys
+          WHERE user_id = ? AND revoked_at IS NULL
+          ORDER BY created_at DESC
+        `)
+        .all(userId);
+
+      res.json({ success: true, data: keys });
+    } catch (error) {
+      handleError(res, error, "Failed to get API keys");
+    }
+  });
+
+  /**
+   * POST /api/api-keys
+   * Generate a new API key
+   */
+  app.post("/api/api-keys", async (req, res) => {
+    try {
+      const { userId, name, scopes } = req.body;
+
+      if (!userId || !name) {
+        return res.status(400).json({ error: "userId and name required" });
+      }
+
+      // Generate a secure random key
+      const key = `rsk_${crypto.randomUUID().replace(/-/g, '')}`;
+      
+      // In production, hash the key before storing
+      // const hashedKey = await bcrypt.hash(key, 10);
+
+      await storage.db
+        .prepare(`
+          INSERT INTO api_keys (
+            id, user_id, name, key, scopes, created_at
+          ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `)
+        .run(
+          crypto.randomUUID(),
+          userId,
+          name,
+          key, // In production, store hashedKey
+          scopes || 'read'
+        );
+
+      // Return the key ONCE - user must copy it
+      res.json({ 
+        success: true, 
+        key: key,
+        message: "Save this key - it won't be shown again"
+      });
+    } catch (error) {
+      handleError(res, error, "Failed to create API key");
+    }
+  });
+
+  /**
+   * DELETE /api/api-keys/:keyId
+   * Revoke an API key
+   */
+  app.delete("/api/api-keys/:keyId", async (req, res) => {
+    try {
+      const { keyId } = req.params;
+
+      await storage.db
+        .prepare(`
+          UPDATE api_keys 
+          SET revoked_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `)
+        .run(keyId);
+
+      res.json({ success: true, message: "API key revoked" });
+    } catch (error) {
+      handleError(res, error, "Failed to revoke API key");
     }
   });
 

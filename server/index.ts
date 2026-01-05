@@ -1,7 +1,15 @@
 import express, { type Request, Response, NextFunction } from "express";
+import compression from "compression";
+import session from "express-session";
+import pgSession from "connect-pg-simple";
+import { pool } from "./db";
 import { registerRoutes } from "./routes";
+import { registerGitHubRoutes } from "./githubRoutes";
+import authRoutes from "./auth";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { dynamicRateLimiter, getRateLimitStats } from "./middleware/rateLimiter";
+import { cache } from "./services/cache";
 
 const app = express();
 const httpServer = createServer(app);
@@ -11,6 +19,31 @@ declare module "http" {
     rawBody: unknown;
   }
 }
+
+// Enable GZIP compression
+app.use(compression());
+
+// Session configuration
+const PostgresStore = pgSession(session);
+
+app.use(
+  session({
+    store: new PostgresStore({
+      pool: pool,
+      tableName: "session",
+      createTableIfMissing: true,
+    }),
+    secret: process.env.SESSION_SECRET || "development-secret-change-in-production",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      secure: process.env.NODE_ENV === "production",
+      httpOnly: true,
+      maxAge: 30 * 24 * 60 * 60 * 1000, // 30 days
+      sameSite: "lax",
+    },
+  })
+);
 
 app.use(
   express.json({
@@ -60,7 +93,37 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Register authentication routes
+  app.use("/api/auth", authRoutes);
+  
+  // Apply rate limiting to API routes
+  app.use("/api", dynamicRateLimiter);
+  
+  // Health check endpoint (bypasses rate limiting)
+  app.get("/health", (req, res) => {
+    const cacheStats = cache.getStats();
+    const rateLimitStats = getRateLimitStats();
+    
+    res.json({
+      status: "ok",
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      memory: {
+        used: Math.round(process.memoryUsage().heapUsed / 1024 / 1024),
+        total: Math.round(process.memoryUsage().heapTotal / 1024 / 1024),
+      },
+      cache: {
+        size: cacheStats.size,
+        hits: cacheStats.hits,
+        misses: cacheStats.misses,
+        hitRate: cache.getHitRate().toFixed(2),
+      },
+      rateLimit: rateLimitStats,
+    });
+  });
+  
   await registerRoutes(httpServer, app);
+  await registerGitHubRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;

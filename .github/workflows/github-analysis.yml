@@ -1,0 +1,229 @@
+name: GitHub-Only Website Analysis
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: 'Website URL to analyze'
+        required: true
+        type: string
+      mode:
+        description: 'Analysis mode'
+        required: false
+        type: choice
+        options:
+          - standard
+          - detailed
+        default: standard
+  
+  # Allow scheduling periodic analyses
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly on Sunday at midnight
+
+jobs:
+  analyze-website:
+    name: Analyze Website using GitHub Models
+    runs-on: ubuntu-latest
+    
+    permissions:
+      issues: write
+      contents: read
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build server
+        run: npm run build
+        
+      - name: Run analysis via GitHub API
+        id: analyze
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          # Start the server in background
+          node dist/index.cjs > server.log 2>&1 &
+          SERVER_PID=$!
+          
+          echo "Server started with PID: $SERVER_PID"
+          
+          # Wait for server to be ready with exponential backoff
+          echo "Waiting for server to start..."
+          MAX_ATTEMPTS=20
+          DELAY=1
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            if curl -s http://localhost:5000/api/github/health > /dev/null 2>&1; then
+              echo "✅ Server is ready after ${i} attempts!"
+              break
+            fi
+            
+            # Check if server process is still running
+            if ! kill -0 $SERVER_PID 2>/dev/null; then
+              echo "❌ Server failed to start. Check logs:"
+              cat server.log
+              exit 1
+            fi
+            
+            if [ $i -eq $MAX_ATTEMPTS ]; then
+              echo "❌ Server failed to start within timeout (tried for ~60s). Check logs:"
+              cat server.log
+              kill $SERVER_PID 2>/dev/null || true
+              exit 1
+            fi
+            
+            # Exponential backoff: 1s, 2s, 4s, 8s, then 8s max
+            sleep $DELAY
+            if [ $DELAY -lt 8 ]; then
+              DELAY=$((DELAY * 2))
+            fi
+          done
+          
+          # Trigger analysis
+          URL="${{ github.event.inputs.url || 'https://example.com' }}"
+          echo "Analyzing: $URL"
+          
+          RESPONSE=$(curl -s -X POST http://localhost:5000/api/github/analyze \
+            -H "Content-Type: application/json" \
+            -d "{\"url\": \"$URL\"}")
+          
+          JOB_ID=$(echo $RESPONSE | jq -r '.jobId')
+          ISSUE_NUMBER=$(echo $RESPONSE | jq -r '.issueNumber')
+          
+          echo "job_id=$JOB_ID" >> $GITHUB_OUTPUT
+          echo "issue_number=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+          
+          echo "Created analysis job: $JOB_ID (Issue #$ISSUE_NUMBER)"
+          
+          # Poll for completion (max 5 minutes)
+          for i in {1..60}; do
+            STATUS_RESPONSE=$(curl -s http://localhost:5000/api/github/analyze/$JOB_ID)
+            STATUS=$(echo $STATUS_RESPONSE | jq -r '.status')
+            
+            echo "Status: $STATUS"
+            
+            if [ "$STATUS" = "completed" ]; then
+              echo "Analysis completed successfully!"
+              CONSENSUS=$(echo $STATUS_RESPONSE | jq -r '.consensusScore')
+              GIST_URL=$(echo $STATUS_RESPONSE | jq -r '.gistUrl')
+              echo "consensus_score=$CONSENSUS" >> $GITHUB_OUTPUT
+              echo "gist_url=$GIST_URL" >> $GITHUB_OUTPUT
+              break
+            elif [ "$STATUS" = "failed" ]; then
+              echo "Analysis failed!"
+              ERROR=$(echo $STATUS_RESPONSE | jq -r '.errorMessage')
+              echo "error=$ERROR" >> $GITHUB_OUTPUT
+              kill $SERVER_PID
+              exit 1
+            fi
+            
+            sleep 5
+          done
+          
+          # Stop server
+          kill $SERVER_PID
+          
+      - name: Comment on success
+        if: success()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const issueNumber = ${{ steps.analyze.outputs.issue_number }};
+            const consensusScore = ${{ steps.analyze.outputs.consensus_score }};
+            const gistUrl = '${{ steps.analyze.outputs.gist_url }}';
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: issueNumber,
+              body: `✅ **Analysis completed via GitHub Actions**
+              
+**Workflow:** ${context.workflow}
+**Run:** [#${context.runNumber}](${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId})
+**Consensus Score:** ${consensusScore}/100
+**Mobile Design:** [View Gist](${gistUrl})
+
+This analysis was automatically generated using GitHub Models and GitHub infrastructure.`
+            });
+            
+      - name: Create summary
+        if: always()
+        run: |
+          echo "## Website Analysis Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**URL:** ${{ github.event.inputs.url || 'https://example.com' }}" >> $GITHUB_STEP_SUMMARY
+          echo "**Issue:** #${{ steps.analyze.outputs.issue_number }}" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.analyze.outputs.consensus_score }}" != "" ]; then
+            echo "**Consensus Score:** ${{ steps.analyze.outputs.consensus_score }}/100" >> $GITHUB_STEP_SUMMARY
+            echo "**Mobile Design:** [${{ steps.analyze.outputs.gist_url }}](${{ steps.analyze.outputs.gist_url }})" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ "${{ steps.analyze.outputs.error }}" != "" ]; then
+            echo "**Error:** ${{ steps.analyze.outputs.error }}" >> $GITHUB_STEP_SUMMARY
+          fi
+
+  batch-analyze:
+    name: Batch Analyze Multiple URLs
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule'
+    
+    permissions:
+      issues: write
+      contents: read
+      
+    strategy:
+      matrix:
+        url:
+          - https://github.com
+          - https://microsoft.com
+          - https://vercel.com
+          
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
+      - name: Install dependencies
+        run: npm ci
+        
+      - name: Build server
+        run: npm run build
+        
+      - name: Analyze ${{ matrix.url }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPO_OWNER: ${{ github.repository_owner }}
+          GITHUB_REPO_NAME: ${{ github.event.repository.name }}
+        run: |
+          # Start server
+          node dist/index.cjs &
+          SERVER_PID=$!
+          
+          # Wait for server
+          sleep 10
+          
+          # Trigger analysis
+          curl -X POST http://localhost:5000/api/github/analyze \
+            -H "Content-Type: application/json" \
+            -d "{\"url\": \"${{ matrix.url }}\"}"
+          
+          # Note: Analysis runs async, check issues for results
+          
+          # Stop server
+          kill $SERVER_PID
