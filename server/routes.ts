@@ -9,6 +9,7 @@ import {
 import { fetchWebsite, extractWebsiteContent } from "./services/websiteFetcher";
 import { runMultiAgentAnalysis, generateConsensusHtml } from "./services/multiAgentOrchestrator";
 import { ZodError } from "zod";
+import { analysisLimiter } from "./middleware";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -36,8 +37,9 @@ export async function registerRoutes(
   /**
    * POST /api/analyze
    * Start analyzing a URL - fetches website and initiates AI analysis
+   * Rate limited to prevent abuse of expensive AI operations
    */
-  app.post("/api/analyze", async (req, res) => {
+  app.post("/api/analyze", analysisLimiter, async (req, res) => {
     try {
       const { url } = analyzeUrlRequestSchema.parse(req.body);
 
