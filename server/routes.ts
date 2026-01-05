@@ -255,6 +255,182 @@ export async function registerRoutes(
     }
   });
 
+  // ============================================
+  // BILLING ENDPOINTS (Stripe Integration)
+  // ============================================
+
+  /**
+   * POST /api/billing/create-checkout-session
+   * Create a Stripe Checkout session for subscription
+   */
+  app.post("/api/billing/create-checkout-session", async (req, res) => {
+    try {
+      const { createCheckoutSession } = await import("./services/stripe");
+      const { createCheckoutSessionSchema } = await import("@shared/schema");
+      
+      const { priceId } = createCheckoutSessionSchema.parse(req.body);
+      
+      // TODO: Get actual user ID from session
+      const userId = "demo-user-id";
+      const userEmail = "demo@example.com";
+      
+      const session = await createCheckoutSession(priceId, userId, userEmail);
+      
+      res.json({ sessionId: session.id, url: session.url });
+    } catch (error) {
+      handleError(res, error, "Failed to create checkout session");
+    }
+  });
+
+  /**
+   * POST /api/billing/create-portal-session
+   * Create a Stripe Customer Portal session
+   */
+  app.post("/api/billing/create-portal-session", async (req, res) => {
+    try {
+      const { createPortalSession } = await import("./services/stripe");
+      const { manageBillingPortalSchema } = await import("@shared/schema");
+      
+      const { returnUrl } = manageBillingPortalSchema.parse(req.body);
+      
+      // TODO: Get customer ID from user's subscription
+      const customerId = "demo-customer-id";
+      
+      const session = await createPortalSession(customerId, returnUrl);
+      
+      res.json({ url: session.url });
+    } catch (error) {
+      handleError(res, error, "Failed to create portal session");
+    }
+  });
+
+  /**
+   * POST /api/billing/webhook
+   * Handle Stripe webhook events
+   */
+  app.post("/api/billing/webhook", async (req, res) => {
+    try {
+      const { constructWebhookEvent } = await import("./services/stripe");
+      const signature = req.headers['stripe-signature'] as string;
+      
+      if (!signature) {
+        return res.status(400).json({ error: "Missing stripe-signature header" });
+      }
+      
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+      const event = constructWebhookEvent(
+        req.rawBody as Buffer,
+        signature,
+        webhookSecret
+      );
+      
+      // Handle different event types
+      switch (event.type) {
+        case 'checkout.session.completed':
+          // TODO: Create or update user subscription
+          console.log('Checkout completed:', event.data.object);
+          break;
+          
+        case 'customer.subscription.updated':
+          // TODO: Update subscription status
+          console.log('Subscription updated:', event.data.object);
+          break;
+          
+        case 'customer.subscription.deleted':
+          // TODO: Cancel subscription
+          console.log('Subscription deleted:', event.data.object);
+          break;
+          
+        case 'invoice.payment_failed':
+          // TODO: Handle failed payment
+          console.log('Payment failed:', event.data.object);
+          break;
+          
+        default:
+          console.log('Unhandled event type:', event.type);
+      }
+      
+      res.json({ received: true });
+    } catch (error) {
+      handleError(res, error, "Webhook error");
+    }
+  });
+
+  /**
+   * GET /api/billing/plans
+   * Get all available subscription plans
+   */
+  app.get("/api/billing/plans", async (req, res) => {
+    try {
+      // Mock plans for now - in production, fetch from database
+      const plans = [
+        {
+          id: "plan_free",
+          name: "Free",
+          description: "Get started with basic features",
+          price: 0,
+          currency: "usd",
+          interval: "month",
+          analysesPerMonth: 5,
+          maxSavedDesigns: 3,
+          features: [
+            "5 website analyses per month",
+            "3 saved designs",
+            "Basic AI analysis",
+            "Standard support"
+          ],
+          stripePriceId: "price_free",
+          isActive: true,
+        },
+        {
+          id: "plan_pro",
+          name: "Pro",
+          description: "Perfect for professionals",
+          price: 1900, // $19.00
+          currency: "usd",
+          interval: "month",
+          analysesPerMonth: 50,
+          maxSavedDesigns: 50,
+          features: [
+            "50 website analyses per month",
+            "50 saved designs",
+            "Advanced AI analysis with all 3 providers",
+            "Design versioning",
+            "Comparison tools",
+            "Priority support"
+          ],
+          stripePriceId: process.env.STRIPE_PRICE_ID_PRO || "price_pro",
+          isActive: true,
+        },
+        {
+          id: "plan_enterprise",
+          name: "Enterprise",
+          description: "For teams and agencies",
+          price: 9900, // $99.00
+          currency: "usd",
+          interval: "month",
+          analysesPerMonth: -1, // unlimited
+          maxSavedDesigns: -1, // unlimited
+          features: [
+            "Unlimited website analyses",
+            "Unlimited saved designs",
+            "Advanced AI analysis",
+            "Team collaboration",
+            "API access",
+            "White-label options",
+            "Dedicated support"
+          ],
+          stripePriceId: process.env.STRIPE_PRICE_ID_ENTERPRISE || "price_enterprise",
+          isActive: true,
+        },
+      ];
+      
+      res.json(plans);
+    } catch (error) {
+      handleError(res, error, "Failed to get plans");
+    }
+  });
+
   return httpServer;
 }
 

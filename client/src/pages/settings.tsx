@@ -8,10 +8,12 @@ import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { Save, User, Bell, Palette, Shield } from "lucide-react";
+import { useLocation } from "wouter";
+import { Save, User, Bell, Palette, Shield, CreditCard } from "lucide-react";
 
 export default function Settings() {
   const { toast } = useToast();
+  const [, navigate] = useLocation();
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [autoSave, setAutoSave] = useState(true);
   const [theme, setTheme] = useState("system");
@@ -34,10 +36,14 @@ export default function Settings() {
         </div>
 
         <Tabs defaultValue="profile" className="space-y-6">
-          <TabsList className="grid w-full grid-cols-4">
+          <TabsList className="grid w-full grid-cols-5">
             <TabsTrigger value="profile">
               <User className="w-4 h-4 mr-2" />
               Profile
+            </TabsTrigger>
+            <TabsTrigger value="billing">
+              <CreditCard className="w-4 h-4 mr-2" />
+              Billing
             </TabsTrigger>
             <TabsTrigger value="notifications">
               <Bell className="w-4 h-4 mr-2" />
@@ -68,6 +74,45 @@ export default function Settings() {
                 <div className="space-y-2">
                   <Label htmlFor="company">Company</Label>
                   <Input id="company" placeholder="Enter your company name" />
+                </div>
+              </div>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="billing" className="space-y-4">
+            <Card className="p-6">
+              <h3 className="text-lg font-semibold mb-4">Subscription & Billing</h3>
+              <div className="space-y-4">
+                <div className="p-4 bg-secondary/10 rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <h4 className="font-medium">Current Plan</h4>
+                      <p className="text-sm text-muted-foreground">Free</p>
+                    </div>
+                    <Button onClick={() => navigate("/billing")}>
+                      Upgrade Plan
+                    </Button>
+                  </div>
+                  <div className="mt-4 space-y-2 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Analyses this month:</span>
+                      <span>2 / 5</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Saved designs:</span>
+                      <span>1 / 3</span>
+                    </div>
+                  </div>
+                </div>
+                <div className="pt-4">
+                  <h4 className="font-medium mb-2">Billing Information</h4>
+                  <p className="text-sm text-muted-foreground mb-4">
+                    Manage your subscription, payment methods, and billing history
+                  </p>
+                  <Button variant="outline" onClick={() => navigate("/billing")}>
+                    <CreditCard className="w-4 h-4 mr-2" />
+                    View All Plans
+                  </Button>
                 </div>
               </div>
             </Card>

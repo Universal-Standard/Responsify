@@ -10,6 +10,7 @@ import Settings from "@/pages/settings";
 import Analytics from "@/pages/analytics";
 import Documentation from "@/pages/documentation";
 import Compare from "@/pages/compare";
+import Billing from "@/pages/billing";
 
 function Router() {
   return (
@@ -20,6 +21,7 @@ function Router() {
       <Route path="/analytics" component={Analytics} />
       <Route path="/docs" component={Documentation} />
       <Route path="/compare" component={Compare} />
+      <Route path="/billing" component={Billing} />
       <Route component={NotFound} />
     </Switch>
   );
