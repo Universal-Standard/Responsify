@@ -200,11 +200,40 @@ Stripe webhook handler (requires signature verification)
 
 ## 🔐 Security
 
+### Current Implementation
 - **Rate Limiting**: 100 requests per 15 minutes (general), 10 requests per hour (analysis)
-- **Input Validation**: XSS prevention on all inputs
-- **Authentication**: Session-based (middleware ready)
+- **Input Validation**: Basic XSS prevention on all inputs
+- **Authentication**: Session-based middleware ready for integration
 - **Stripe**: PCI-compliant payment processing
 - **Environment Variables**: Sensitive data never committed
+
+### ⚠️ Important Security Notes
+
+**XSS Protection**: The current input validation middleware provides basic XSS protection by stripping HTML tags and common attack patterns. However, this is **NOT comprehensive** and should be replaced before production deployment.
+
+**Required for Production:**
+1. **Replace Basic Sanitization**: Install and use a proper sanitization library:
+   ```bash
+   npm install sanitize-html
+   # or for more comprehensive protection:
+   npm install dompurify isomorphic-dompurify
+   ```
+
+2. **Implement CSP Headers**: Add Content Security Policy headers to prevent XSS:
+   ```javascript
+   app.use((req, res, next) => {
+     res.setHeader("Content-Security-Policy", "default-src 'self'");
+     next();
+   });
+   ```
+
+3. **Add Authentication**: Implement proper user authentication before enabling billing features
+
+4. **Regular Updates**: Keep all dependencies up to date with security patches
+
+5. **Security Audits**: Run `npm audit` regularly and address vulnerabilities
+
+See `server/middleware.ts` for detailed security implementation notes.
 
 ## 🧪 Testing
 
