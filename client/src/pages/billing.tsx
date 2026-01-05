@@ -52,9 +52,17 @@ export default function Billing() {
       const { url } = await response.json();
       
       // Validate that the URL is from Stripe before redirecting
-      if (url && (url.startsWith('https://checkout.stripe.com/') || url.startsWith('https://billing.stripe.com/'))) {
-        window.location.href = url;
-      } else {
+      // Check for exact Stripe domain matches to prevent subdomain attacks
+      try {
+        const urlObj = new URL(url);
+        const validDomains = ['checkout.stripe.com', 'billing.stripe.com'];
+        
+        if (validDomains.includes(urlObj.hostname) && urlObj.protocol === 'https:') {
+          window.location.href = url;
+        } else {
+          throw new Error("Invalid redirect URL domain");
+        }
+      } catch (urlError) {
         throw new Error("Invalid redirect URL received");
       }
     } catch (error: any) {
@@ -82,9 +90,17 @@ export default function Billing() {
       const { url } = await response.json();
       
       // Validate that the URL is from Stripe before redirecting
-      if (url && (url.startsWith('https://checkout.stripe.com/') || url.startsWith('https://billing.stripe.com/'))) {
-        window.location.href = url;
-      } else {
+      // Check for exact Stripe domain matches to prevent subdomain attacks
+      try {
+        const urlObj = new URL(url);
+        const validDomains = ['checkout.stripe.com', 'billing.stripe.com'];
+        
+        if (validDomains.includes(urlObj.hostname) && urlObj.protocol === 'https:') {
+          window.location.href = url;
+        } else {
+          throw new Error("Invalid redirect URL domain");
+        }
+      } catch (urlError) {
         throw new Error("Invalid redirect URL received");
       }
     } catch (error: any) {

@@ -263,6 +263,7 @@ export async function registerRoutes(
    * POST /api/billing/create-checkout-session
    * Create a Stripe Checkout session for subscription
    * TODO: Integrate with actual authentication system before production
+   * SECURITY: Demo mode must be disabled in production
    */
   app.post("/api/billing/create-checkout-session", async (req, res) => {
     try {
@@ -272,14 +273,19 @@ export async function registerRoutes(
       const { priceId } = createCheckoutSessionSchema.parse(req.body);
       
       // TODO: Replace with actual user from authenticated session
-      // For now, return error if authentication is not implemented
       // const userId = req.session?.user?.id;
       // const userEmail = req.session?.user?.email;
       // if (!userId || !userEmail) {
       //   return res.status(401).json({ error: "Authentication required" });
       // }
       
-      // Demo mode - remove before production
+      // DEMO MODE - Only allow in development
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(501).json({ 
+          error: "Billing integration requires authentication system. Please implement user authentication before using this feature in production." 
+        });
+      }
+      
       const userId = "demo-user-id";
       const userEmail = "demo@example.com";
       
@@ -295,6 +301,7 @@ export async function registerRoutes(
    * POST /api/billing/create-portal-session
    * Create a Stripe Customer Portal session
    * TODO: Integrate with actual authentication system before production
+   * SECURITY: Demo mode must be disabled in production
    */
   app.post("/api/billing/create-portal-session", async (req, res) => {
     try {
@@ -310,7 +317,13 @@ export async function registerRoutes(
       //   return res.status(404).json({ error: "No active subscription found" });
       // }
       
-      // Demo mode - remove before production
+      // DEMO MODE - Only allow in development
+      if (process.env.NODE_ENV === 'production') {
+        return res.status(501).json({ 
+          error: "Billing portal requires authentication system. Please implement user authentication before using this feature in production." 
+        });
+      }
+      
       const customerId = "demo-customer-id";
       
       const session = await createPortalSession(customerId, returnUrl);
