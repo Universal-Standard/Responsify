@@ -1,5 +1,6 @@
 import rateLimit from 'express-rate-limit';
 import type { Request, Response, NextFunction } from 'express';
+import sanitizeHtml from 'sanitize-html';
 
 /**
  * Rate limiting middleware for API endpoints
@@ -70,27 +71,19 @@ export function optionalAuth(req: Request, res: Response, next: NextFunction) {
  */
 export function validateRequest(req: Request, res: Response, next: NextFunction) {
   // Basic XSS prevention: This is NOT comprehensive
-  // TODO: Replace with proper sanitization library before production
+  // In production, prefer a fully configured sanitization setup and CSP.
   const sanitize = (obj: any): any => {
     if (typeof obj === 'string') {
-      // Note: This basic implementation has limitations and should be replaced
-      // with a proper library like sanitize-html for production use
-      let cleaned = obj;
-      
-      // Remove all HTML tags for maximum safety
-      // This is aggressive but safe for most API inputs
-      // CodeQL may flag this as incomplete, but removing ALL tags is actually
-      // more restrictive than trying to sanitize specific patterns
-      cleaned = cleaned.replace(/<[^>]*>/g, '');
-      
-      // Remove any remaining attempts at script injection
-      // These are defensive measures after tag removal
-      cleaned = cleaned.replace(/javascript:/gi, '');
-      cleaned = cleaned.replace(/on\w+\s*=/gi, ''); // CodeQL: false positive, tags already removed
-      cleaned = cleaned.replace(/data:/gi, '');
-      cleaned = cleaned.replace(/vbscript:/gi, '');
-      
-      return cleaned;
+      // Use a well-tested sanitization library instead of ad-hoc regexes.
+      // Configuration here is intentionally strict for API inputs:
+      //  - strip all HTML tags
+      //  - disallow dangerous URL schemes like "javascript:" and "vbscript:"
+      return sanitizeHtml(obj, {
+        allowedTags: [],
+        allowedAttributes: {},
+        allowedSchemes: ['http', 'https', 'mailto'],
+        allowProtocolRelative: false,
+      });
     }
     if (Array.isArray(obj)) {
       return obj.map(sanitize);
