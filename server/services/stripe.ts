@@ -1,7 +1,13 @@
 import Stripe from 'stripe';
 
 // Initialize Stripe with API key from environment
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
+const stripeApiKey = process.env.STRIPE_SECRET_KEY;
+
+if (!stripeApiKey) {
+  console.warn('⚠️  STRIPE_SECRET_KEY is not set. Billing features will not work.');
+}
+
+const stripe = new Stripe(stripeApiKey || 'sk_test_placeholder', {
   apiVersion: '2024-12-18.acacia',
 });
 

@@ -25,14 +25,19 @@ app.use(
 
 app.use(express.urlencoded({ extended: false }));
 
-// Apply security middleware
-app.use(validateRequest);
+// Apply rate limiting to all API routes FIRST (before expensive operations)
+app.use('/api', apiLimiter);
+
+// Apply security middleware, but skip for Stripe webhook (needs raw body)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path === "/api/billing/webhook") {
+    return next();
+  }
+  return validateRequest(req, res, next);
+});
 
 // Apply authentication to all API routes
 app.use('/api', authenticate);
-
-// Apply rate limiting to all API routes
-app.use('/api', apiLimiter);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {

@@ -14,10 +14,13 @@ export function cn(...inputs: ClassValue[]) {
 export function isValidStripeUrl(url: string): boolean {
   try {
     const urlObj = new URL(url);
-    const validDomains = ['checkout.stripe.com', 'billing.stripe.com'];
+    const hostname = urlObj.hostname.toLowerCase();
     
-    // Check for exact domain match and HTTPS protocol
-    return validDomains.includes(urlObj.hostname) && urlObj.protocol === 'https:';
+    // Allow stripe.com and any secure subdomain of stripe.com
+    const isStripeDomain = hostname === 'stripe.com' || hostname.endsWith('.stripe.com');
+    
+    // Check for valid Stripe domain and HTTPS protocol
+    return isStripeDomain && urlObj.protocol === 'https:';
   } catch {
     // Invalid URL format
     return false;

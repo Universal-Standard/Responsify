@@ -64,6 +64,7 @@ export default function Billing() {
         description: error.message || "Failed to start checkout",
         variant: "destructive",
       });
+    } finally {
       setLoadingPlanId(null);
     }
   };

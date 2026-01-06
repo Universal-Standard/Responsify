@@ -321,6 +321,12 @@ export async function registerRoutes(
       const { returnUrl } = manageBillingPortalSchema.parse(req.body);
       const userId = req.userId!;
       
+      // Validate returnUrl belongs to our application
+      const appUrl = process.env.APP_URL || 'http://localhost:5000';
+      if (returnUrl && !returnUrl.startsWith(appUrl)) {
+        return res.status(400).json({ error: "Invalid return URL" });
+      }
+      
       // Get user's subscription
       const subscription = await storage.getUserSubscription(userId);
       if (!subscription || !subscription.stripeCustomerId) {
@@ -355,12 +361,18 @@ export async function registerRoutes(
         webhookSecret
       );
       
+      const isProduction = process.env.NODE_ENV === 'production';
+      
       // Handle different event types
       switch (event.type) {
         case 'checkout.session.completed': {
           const session = event.data.object as any;
           const userId = session.client_reference_id || session.metadata?.userId;
           const subscriptionId = session.subscription;
+          
+          if (!isProduction) {
+            console.log('Checkout completed', { type: event.type, userId, subscriptionId });
+          }
           
           if (userId && subscriptionId) {
             // Get subscription details from Stripe
@@ -392,6 +404,11 @@ export async function registerRoutes(
           
         case 'customer.subscription.updated': {
           const subscription = event.data.object as any;
+          
+          if (!isProduction) {
+            console.log('Subscription updated', { type: event.type, id: subscription.id });
+          }
+          
           const dbSubscription = await storage.getUserSubscriptionByStripeId(subscription.id);
           
           if (dbSubscription) {
@@ -407,6 +424,11 @@ export async function registerRoutes(
           
         case 'customer.subscription.deleted': {
           const subscription = event.data.object as any;
+          
+          if (!isProduction) {
+            console.log('Subscription deleted', { type: event.type, id: subscription.id });
+          }
+          
           const dbSubscription = await storage.getUserSubscriptionByStripeId(subscription.id);
           
           if (dbSubscription) {
@@ -421,6 +443,10 @@ export async function registerRoutes(
           const invoice = event.data.object as any;
           const subscriptionId = invoice.subscription;
           
+          if (!isProduction) {
+            console.log('Payment failed', { type: event.type, subscriptionId });
+          }
+          
           if (subscriptionId) {
             const dbSubscription = await storage.getUserSubscriptionByStripeId(subscriptionId);
             if (dbSubscription) {
@@ -433,11 +459,18 @@ export async function registerRoutes(
         }
           
         default:
-          console.log('Unhandled event type:', event.type);
+          if (!isProduction) {
+            console.log('Unhandled webhook event', { type: event.type });
+          }
       }
       
       res.json({ received: true });
-    } catch (error) {
+    } catch (error: any) {
+      // Distinguish Stripe signature verification errors (client issue)
+      if (error?.type === 'StripeSignatureVerificationError') {
+        return res.status(400).json({ error: "Invalid webhook signature" });
+      }
+      // Other errors are treated as internal processing errors
       handleError(res, error, "Webhook error");
     }
   });
