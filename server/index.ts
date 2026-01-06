@@ -3,6 +3,8 @@ import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { apiLimiter, validateRequest, errorHandler } from "./middleware";
+import { authenticate } from "./auth";
+import { seedSubscriptionPlans } from "./seed-plans";
 
 const app = express();
 const httpServer = createServer(app);
@@ -25,6 +27,9 @@ app.use(express.urlencoded({ extended: false }));
 
 // Apply security middleware
 app.use(validateRequest);
+
+// Apply authentication to all API routes
+app.use('/api', authenticate);
 
 // Apply rate limiting to all API routes
 app.use('/api', apiLimiter);
@@ -67,6 +72,13 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Seed subscription plans on startup
+  try {
+    await seedSubscriptionPlans();
+  } catch (error) {
+    console.error('Failed to seed subscription plans:', error);
+  }
+  
   await registerRoutes(httpServer, app);
 
   // Use custom error handler

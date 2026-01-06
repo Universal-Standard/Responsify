@@ -9,7 +9,17 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
 import { useLocation } from "wouter";
-import { Save, User, Bell, Palette, Shield, CreditCard } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { Save, User, Bell, Palette, Shield, CreditCard, Loader2 } from "lucide-react";
+
+interface UserSubscription {
+  plan: string;
+  status: string;
+  analysesUsed: number;
+  analysesLimit: number;
+  currentPeriodEnd?: string;
+  cancelAtPeriodEnd?: boolean;
+}
 
 export default function Settings() {
   const { toast } = useToast();
@@ -17,6 +27,15 @@ export default function Settings() {
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [autoSave, setAutoSave] = useState(true);
   const [theme, setTheme] = useState("system");
+
+  const { data: subscription, isLoading } = useQuery<UserSubscription>({
+    queryKey: ["user-subscription"],
+    queryFn: async () => {
+      const response = await fetch("/api/user/subscription");
+      if (!response.ok) throw new Error("Failed to fetch subscription");
+      return response.json();
+    },
+  });
 
   const handleSave = () => {
     toast({
@@ -82,39 +101,53 @@ export default function Settings() {
           <TabsContent value="billing" className="space-y-4">
             <Card className="p-6">
               <h3 className="text-lg font-semibold mb-4">Subscription & Billing</h3>
-              <div className="space-y-4">
-                <div className="p-4 bg-secondary/10 rounded-lg">
-                  <div className="flex items-center justify-between mb-2">
-                    <div>
-                      <h4 className="font-medium">Current Plan</h4>
-                      <p className="text-sm text-muted-foreground">Free</p>
+              {isLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <Loader2 className="w-6 h-6 animate-spin text-primary" />
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-4 bg-secondary/10 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <h4 className="font-medium">Current Plan</h4>
+                        <p className="text-sm text-muted-foreground">{subscription?.plan || 'Free'}</p>
+                      </div>
+                      <Button onClick={() => navigate("/billing")}>
+                        {subscription?.plan === 'Free' ? 'Upgrade Plan' : 'Manage Plan'}
+                      </Button>
                     </div>
-                    <Button onClick={() => navigate("/billing")}>
-                      Upgrade Plan
+                    <div className="mt-4 space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Analyses this month:</span>
+                        <span>{subscription?.analysesUsed || 0} / {subscription?.analysesLimit || 5}</span>
+                      </div>
+                      {subscription?.currentPeriodEnd && (
+                        <div className="flex justify-between">
+                          <span className="text-muted-foreground">Renews:</span>
+                          <span>{new Date(subscription.currentPeriodEnd).toLocaleDateString()}</span>
+                        </div>
+                      )}
+                      {subscription?.cancelAtPeriodEnd && (
+                        <div className="flex justify-between">
+                          <span className="text-amber-600">Status:</span>
+                          <span className="text-amber-600">Cancels at period end</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="pt-4">
+                    <h4 className="font-medium mb-2">Billing Information</h4>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Manage your subscription, payment methods, and billing history
+                    </p>
+                    <Button variant="outline" onClick={() => navigate("/billing")}>
+                      <CreditCard className="w-4 h-4 mr-2" />
+                      View All Plans
                     </Button>
                   </div>
-                  <div className="mt-4 space-y-2 text-sm">
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Analyses this month:</span>
-                      <span>2 / 5</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-muted-foreground">Saved designs:</span>
-                      <span>1 / 3</span>
-                    </div>
-                  </div>
                 </div>
-                <div className="pt-4">
-                  <h4 className="font-medium mb-2">Billing Information</h4>
-                  <p className="text-sm text-muted-foreground mb-4">
-                    Manage your subscription, payment methods, and billing history
-                  </p>
-                  <Button variant="outline" onClick={() => navigate("/billing")}>
-                    <CreditCard className="w-4 h-4 mr-2" />
-                    View All Plans
-                  </Button>
-                </div>
-              </div>
+              )}
             </Card>
           </TabsContent>
 

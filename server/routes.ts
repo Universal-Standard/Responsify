@@ -262,34 +262,46 @@ export async function registerRoutes(
   /**
    * POST /api/billing/create-checkout-session
    * Create a Stripe Checkout session for subscription
-   * TODO: Integrate with actual authentication system before production
-   * SECURITY: Demo mode must be disabled in production
    */
   app.post("/api/billing/create-checkout-session", async (req, res) => {
     try {
-      const { createCheckoutSession } = await import("./services/stripe");
+      const { createCheckoutSession, createCustomer } = await import("./services/stripe");
       const { createCheckoutSessionSchema } = await import("@shared/schema");
       
       const { priceId } = createCheckoutSessionSchema.parse(req.body);
+      const userId = req.userId!;
       
-      // TODO: Replace with actual user from authenticated session
-      // const userId = req.session?.user?.id;
-      // const userEmail = req.session?.user?.email;
-      // if (!userId || !userEmail) {
-      //   return res.status(401).json({ error: "Authentication required" });
-      // }
-      
-      // DEMO MODE - Only allow in development
-      if (process.env.NODE_ENV === 'production') {
-        return res.status(503).json({ 
-          error: "Billing integration requires authentication. This feature is unavailable until user authentication is implemented." 
+      // Get or create user
+      let user = await storage.getUser(userId);
+      if (!user) {
+        // Create a default user for this session
+        user = await storage.createUser({
+          username: `user_${userId.substring(0, 8)}`,
+          password: '', // Password not used in this flow
         });
       }
       
-      const userId = "demo-user-id";
-      const userEmail = "demo@example.com";
+      // Get user's subscription to check for existing Stripe customer
+      let subscription = await storage.getUserSubscription(userId);
+      let stripeCustomerId: string;
       
-      const session = await createCheckoutSession(priceId, userId, userEmail);
+      if (subscription?.stripeCustomerId) {
+        stripeCustomerId = subscription.stripeCustomerId;
+      } else {
+        // Create Stripe customer
+        const customer = await createCustomer(
+          `user_${userId.substring(0, 8)}@responsiai.local`,
+          userId
+        );
+        stripeCustomerId = customer.id;
+      }
+      
+      const session = await createCheckoutSession(
+        priceId,
+        userId,
+        `user_${userId.substring(0, 8)}@responsiai.local`,
+        stripeCustomerId
+      );
       
       res.json({ sessionId: session.id, url: session.url });
     } catch (error) {
@@ -300,8 +312,6 @@ export async function registerRoutes(
   /**
    * POST /api/billing/create-portal-session
    * Create a Stripe Customer Portal session
-   * TODO: Integrate with actual authentication system before production
-   * SECURITY: Demo mode must be disabled in production
    */
   app.post("/api/billing/create-portal-session", async (req, res) => {
     try {
@@ -309,24 +319,15 @@ export async function registerRoutes(
       const { manageBillingPortalSchema } = await import("@shared/schema");
       
       const { returnUrl } = manageBillingPortalSchema.parse(req.body);
+      const userId = req.userId!;
       
-      // TODO: Replace with actual customer ID from user's subscription
-      // const subscription = await storage.getUserSubscription(req.session?.user?.id);
-      // const customerId = subscription?.stripeCustomerId;
-      // if (!customerId) {
-      //   return res.status(404).json({ error: "No active subscription found" });
-      // }
-      
-      // DEMO MODE - Only allow in development
-      if (process.env.NODE_ENV === 'production') {
-        return res.status(503).json({ 
-          error: "Billing portal requires authentication. This feature is unavailable until user authentication is implemented." 
-        });
+      // Get user's subscription
+      const subscription = await storage.getUserSubscription(userId);
+      if (!subscription || !subscription.stripeCustomerId) {
+        return res.status(404).json({ error: "No active subscription found" });
       }
       
-      const customerId = "demo-customer-id";
-      
-      const session = await createPortalSession(customerId, returnUrl);
+      const session = await createPortalSession(subscription.stripeCustomerId, returnUrl);
       
       res.json({ url: session.url });
     } catch (error) {
@@ -356,25 +357,80 @@ export async function registerRoutes(
       
       // Handle different event types
       switch (event.type) {
-        case 'checkout.session.completed':
-          // TODO: Create or update user subscription
-          console.log('Checkout completed:', event.data.object);
-          break;
+        case 'checkout.session.completed': {
+          const session = event.data.object as any;
+          const userId = session.client_reference_id || session.metadata?.userId;
+          const subscriptionId = session.subscription;
           
-        case 'customer.subscription.updated':
-          // TODO: Update subscription status
-          console.log('Subscription updated:', event.data.object);
+          if (userId && subscriptionId) {
+            // Get subscription details from Stripe
+            const { getSubscription } = await import("./services/stripe");
+            const stripeSubscription = await getSubscription(subscriptionId as string);
+            
+            // Get the plan
+            const plan = await storage.getSubscriptionPlanByStripeId(
+              stripeSubscription.items.data[0].price.id
+            );
+            
+            if (plan) {
+              // Create user subscription
+              await storage.createUserSubscription({
+                userId,
+                planId: plan.id,
+                stripeCustomerId: session.customer as string,
+                stripeSubscriptionId: subscriptionId as string,
+                status: 'active',
+                currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
+                currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+                cancelAtPeriodEnd: false,
+                analysesUsedThisMonth: 0,
+              });
+            }
+          }
           break;
+        }
           
-        case 'customer.subscription.deleted':
-          // TODO: Cancel subscription
-          console.log('Subscription deleted:', event.data.object);
-          break;
+        case 'customer.subscription.updated': {
+          const subscription = event.data.object as any;
+          const dbSubscription = await storage.getUserSubscriptionByStripeId(subscription.id);
           
-        case 'invoice.payment_failed':
-          // TODO: Handle failed payment
-          console.log('Payment failed:', event.data.object);
+          if (dbSubscription) {
+            await storage.updateUserSubscription(dbSubscription.id, {
+              status: subscription.status,
+              currentPeriodStart: new Date(subscription.current_period_start * 1000),
+              currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+              cancelAtPeriodEnd: subscription.cancel_at_period_end,
+            });
+          }
           break;
+        }
+          
+        case 'customer.subscription.deleted': {
+          const subscription = event.data.object as any;
+          const dbSubscription = await storage.getUserSubscriptionByStripeId(subscription.id);
+          
+          if (dbSubscription) {
+            await storage.updateUserSubscription(dbSubscription.id, {
+              status: 'canceled',
+            });
+          }
+          break;
+        }
+          
+        case 'invoice.payment_failed': {
+          const invoice = event.data.object as any;
+          const subscriptionId = invoice.subscription;
+          
+          if (subscriptionId) {
+            const dbSubscription = await storage.getUserSubscriptionByStripeId(subscriptionId);
+            if (dbSubscription) {
+              await storage.updateUserSubscription(dbSubscription.id, {
+                status: 'past_due',
+              });
+            }
+          }
+          break;
+        }
           
         default:
           console.log('Unhandled event type:', event.type);
@@ -388,76 +444,97 @@ export async function registerRoutes(
 
   /**
    * GET /api/billing/plans
-   * Get all available subscription plans
+   * Get all available subscription plans from database
    */
   app.get("/api/billing/plans", async (req, res) => {
     try {
-      // Mock plans for now - in production, fetch from database
-      const plans = [
-        {
-          id: "plan_free",
-          name: "Free",
-          description: "Get started with basic features",
-          price: 0,
-          currency: "usd",
-          interval: "month",
-          analysesPerMonth: 5,
-          maxSavedDesigns: 3,
-          features: [
-            "5 website analyses per month",
-            "3 saved designs",
-            "Basic AI analysis",
-            "Standard support"
-          ],
-          stripePriceId: "price_free",
-          isActive: true,
-        },
-        {
-          id: "plan_pro",
-          name: "Pro",
-          description: "Perfect for professionals",
-          price: 1900, // $19.00
-          currency: "usd",
-          interval: "month",
-          analysesPerMonth: 50,
-          maxSavedDesigns: 50,
-          features: [
-            "50 website analyses per month",
-            "50 saved designs",
-            "Advanced AI analysis with all 3 providers",
-            "Design versioning",
-            "Comparison tools",
-            "Priority support"
-          ],
-          stripePriceId: process.env.STRIPE_PRICE_ID_PRO || "price_pro",
-          isActive: true,
-        },
-        {
-          id: "plan_enterprise",
-          name: "Enterprise",
-          description: "For teams and agencies",
-          price: 9900, // $99.00
-          currency: "usd",
-          interval: "month",
-          analysesPerMonth: -1, // unlimited
-          maxSavedDesigns: -1, // unlimited
-          features: [
-            "Unlimited website analyses",
-            "Unlimited saved designs",
-            "Advanced AI analysis",
-            "Team collaboration",
-            "API access",
-            "White-label options",
-            "Dedicated support"
-          ],
-          stripePriceId: process.env.STRIPE_PRICE_ID_ENTERPRISE || "price_enterprise",
-          isActive: true,
-        },
-      ];
+      const plans = await storage.getAllSubscriptionPlans();
       
-      res.json(plans);
+      // Format plans for frontend
+      const formattedPlans = plans.map(plan => ({
+        id: plan.id,
+        name: plan.name,
+        description: plan.description,
+        price: plan.price,
+        currency: plan.currency,
+        interval: plan.interval,
+        analysesPerMonth: plan.analysesPerMonth,
+        maxSavedDesigns: plan.maxSavedDesigns,
+        features: typeof plan.features === 'string' ? JSON.parse(plan.features) : plan.features,
+        stripePriceId: plan.stripePriceId,
+        isActive: plan.isActive,
+      }));
+      
+      res.json(formattedPlans);
     } catch (error) {
       handleError(res, error, "Failed to get plans");
+    }
+  });
+  
+  /**
+   * GET /api/user/subscription
+   * Get current user's subscription details
+   */
+  app.get("/api/user/subscription", async (req, res) => {
+    try {
+      const userId = req.userId!;
+      const subscription = await storage.getUserSubscription(userId);
+      
+      if (!subscription) {
+        return res.json({ plan: 'Free', status: 'active', analysesUsed: 0, analysesLimit: 5 });
+      }
+      
+      const plan = await storage.getSubscriptionPlan(subscription.planId);
+      
+      res.json({
+        id: subscription.id,
+        plan: plan?.name || 'Unknown',
+        status: subscription.status,
+        analysesUsed: subscription.analysesUsedThisMonth,
+        analysesLimit: plan?.analysesPerMonth || 0,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+      });
+    } catch (error) {
+      handleError(res, error, "Failed to get subscription");
+    }
+  });
+  
+  /**
+   * GET /api/analytics/stats
+   * Get analytics statistics
+   */
+  app.get("/api/analytics/stats", async (req, res) => {
+    try {
+      const userId = req.userId;
+      const stats = await storage.getAnalyticsStats(userId);
+      res.json(stats);
+    } catch (error) {
+      handleError(res, error, "Failed to get analytics stats");
+    }
+  });
+  
+  /**
+   * GET /api/analytics/recent
+   * Get recent analyses
+   */
+  app.get("/api/analytics/recent", async (req, res) => {
+    try {
+      const userId = req.userId;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const analyses = await storage.getRecentAnalyses(userId, limit);
+      
+      // Format for frontend
+      const formatted = analyses.map(job => ({
+        url: job.url,
+        score: job.consensusScore || 0,
+        date: job.completedAt?.toISOString().split('T')[0] || '',
+        type: 'Website', // Could be enhanced with categorization
+      }));
+      
+      res.json(formatted);
+    } catch (error) {
+      handleError(res, error, "Failed to get recent analyses");
     }
   });
 

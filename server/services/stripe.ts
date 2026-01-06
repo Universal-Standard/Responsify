@@ -11,9 +11,10 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || '', {
 export async function createCheckoutSession(
   priceId: string,
   userId: string,
-  userEmail?: string
+  userEmail?: string,
+  customerId?: string
 ): Promise<Stripe.Checkout.Session> {
-  const session = await stripe.checkout.sessions.create({
+  const sessionParams: Stripe.Checkout.SessionCreateParams = {
     mode: 'subscription',
     payment_method_types: ['card'],
     line_items: [
@@ -24,13 +25,20 @@ export async function createCheckoutSession(
     ],
     success_url: `${process.env.APP_URL || 'http://localhost:5000'}/settings?session_id={CHECKOUT_SESSION_ID}`,
     cancel_url: `${process.env.APP_URL || 'http://localhost:5000'}/settings`,
-    customer_email: userEmail,
     client_reference_id: userId,
     metadata: {
       userId,
     },
-  });
-
+  };
+  
+  // Add customer if provided, otherwise use email
+  if (customerId) {
+    sessionParams.customer = customerId;
+  } else if (userEmail) {
+    sessionParams.customer_email = userEmail;
+  }
+  
+  const session = await stripe.checkout.sessions.create(sessionParams);
   return session;
 }
 
