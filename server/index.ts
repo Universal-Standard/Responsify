@@ -1,17 +1,40 @@
 import express, { type Request, Response, NextFunction } from "express";
+import session from "express-session";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
 import { apiLimiter, validateRequest, errorHandler } from "./middleware";
 import { authenticate } from "./auth";
 import { seedSubscriptionPlans } from "./seed-plans";
+import { createSessionStore, getSessionConfig } from "./config/session";
+import { initializeSentry, sentryRequestHandler, sentryTracingHandler, sentryErrorHandler } from "./config/sentry";
+import { configureSecurityHeaders } from "./config/security";
+import { log as loggerLog } from "./config/logger";
 
 const app = express();
 const httpServer = createServer(app);
 
+// Initialize Sentry first (before any other middleware)
+initializeSentry(app);
+
+// Sentry request handler - must be first
+app.use(sentryRequestHandler());
+
+// Sentry tracing handler - after request handler
+app.use(sentryTracingHandler());
+
+// Configure security headers (helmet)
+configureSecurityHeaders(app);
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
+  }
+}
+
+declare module "express-session" {
+  interface SessionData {
+    userId?: string;
   }
 }
 
@@ -77,6 +100,17 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize session store
+  try {
+    log('Initializing session store...');
+    const sessionStore = await createSessionStore();
+    const sessionConfig = getSessionConfig(sessionStore);
+    app.use(session(sessionConfig));
+    log('✅ Session store initialized');
+  } catch (error) {
+    console.error('Failed to initialize session store:', error);
+  }
+
   // Seed subscription plans on startup
   try {
     await seedSubscriptionPlans();
@@ -86,7 +120,10 @@ app.use((req, res, next) => {
   
   await registerRoutes(httpServer, app);
 
-  // Use custom error handler
+  // Sentry error handler - must be after all routes
+  app.use(sentryErrorHandler());
+
+  // Use custom error handler (after Sentry)
   app.use(errorHandler);
 
   // importantly only setup vite in development and after
@@ -112,6 +149,7 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      loggerLog.info(`🚀 Server started on port ${port}`);
     },
   );
 })();

@@ -29,7 +29,16 @@ All features are fully implemented with real database backing, authentication, a
 - 🔒 **Rate Limiting** - API protection with configurable limits
 - 🛡️ **Input Validation** - XSS prevention and sanitization
 - 🚀 **Optimized** - Fast builds and production-ready code
-- 💳 **Stripe Integration** - Secure subscription billing (v1.1)
+- 💳 **Stripe Integration** - Secure subscription billing
+- 🔐 **Security Headers** - Comprehensive helmet configuration with CSP
+- 📊 **Error Tracking** - Sentry integration for monitoring
+
+### Operations & Infrastructure
+- 🗄️ **Session Management** - Redis/memory store with secure cookies
+- 📧 **Email Notifications** - Automated subscription and payment emails
+- 💾 **Database Backups** - Automated backup and restore scripts
+- 🏥 **Health Checks** - Endpoints for monitoring and load balancers
+- 📝 **Structured Logging** - Winston logger with log rotation
 
 ### Subscription Tiers
 - **Free**: 5 analyses/month, 3 saved designs
@@ -43,6 +52,8 @@ All features are fully implemented with real database backing, authentication, a
 - PostgreSQL database
 - API keys for OpenAI, Anthropic, and Google Gemini
 - Stripe account (for billing features)
+- Redis (optional, recommended for production)
+- SMTP server (optional, for email notifications)
 
 ### Installation
 
@@ -73,18 +84,36 @@ AI_INTEGRATIONS_ANTHROPIC_API_KEY=your_anthropic_key
 AI_INTEGRATIONS_GEMINI_BASE_URL=https://generativelanguage.googleapis.com/v1beta
 AI_INTEGRATIONS_GEMINI_API_KEY=your_gemini_key
 
-# Stripe (Optional - for billing features)
+# Stripe (for billing features)
 STRIPE_SECRET_KEY=sk_test_...
 STRIPE_PUBLISHABLE_KEY=pk_test_...
 STRIPE_WEBHOOK_SECRET=whsec_...
 STRIPE_PRICE_ID_PRO=price_...
 STRIPE_PRICE_ID_ENTERPRISE=price_...
 
+# Session Management
+SESSION_SECRET=generate-with-openssl-rand-base64-32
+
+# Email Notifications (optional)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASS=your-app-password
+EMAIL_FROM=ResponsiAI <noreply@responsiai.com>
+
+# Monitoring (optional)
+SENTRY_DSN=https://...@sentry.io/...
+
+# Redis (optional, recommended for production)
+REDIS_URL=redis://localhost:6379
+
 # Application
 APP_URL=http://localhost:5000
 NODE_ENV=development
 PORT=5000
 ```
+
+See `.env.example` for complete configuration options.
 
 4. **Initialize the database**
 ```bash
@@ -113,12 +142,66 @@ This creates optimized bundles in the `dist/` directory.
 npm start
 ```
 
+### Database Management
+```bash
+# Create database backup
+npm run db:backup
+
+# Restore from backup
+npm run db:restore -- path/to/backup.sql
+
+# Push schema changes
+npm run db:push
+```
+
 ### Environment Variables for Production
 Ensure all environment variables are set in your production environment:
 - Set `NODE_ENV=production`
-- Use production API keys
+- Use production API keys (no test keys)
 - Configure production database URL
 - Set up Stripe webhook endpoint
+- Configure Redis for session management
+- Set up SMTP for email notifications
+- Configure Sentry DSN for error tracking
+- Generate strong SESSION_SECRET
+
+## 🔧 Operations & Monitoring
+
+### Health Checks
+- `GET /api/health` - Basic health check with service status
+- `GET /api/health/ready` - Readiness probe for load balancers
+
+### Session Management
+- **Development**: Uses in-memory store
+- **Production**: Uses Redis (falls back to memory if unavailable)
+- Session duration: 24 hours with rolling expiration
+- Secure, HTTP-only cookies with CSRF protection
+
+### Error Tracking
+- Integrated with Sentry for error and performance monitoring
+- Automatic PII filtering for security
+- Configurable sample rates
+
+### Email Notifications
+Automatic emails for:
+- Subscription confirmations
+- Payment failures
+- Subscription cancellations
+- Usage limit warnings
+
+### Security Headers
+- Comprehensive helmet configuration
+- Content Security Policy (CSP)
+- HSTS, X-Frame-Options, and more
+- Stripe and Sentry whitelisted
+
+### Logging
+- Structured logging with Winston
+- Console output in development (colorized)
+- File output in production with rotation
+- Configurable log levels
+
+For detailed operational documentation, see [OPERATIONS.md](./OPERATIONS.md).
 
 ## 🏗️ Architecture
 
@@ -128,6 +211,11 @@ Ensure all environment variables are set in your production environment:
 - **Database**: PostgreSQL with Drizzle ORM
 - **AI**: OpenAI GPT-4, Anthropic Claude, Google Gemini
 - **Payments**: Stripe
+- **Sessions**: Redis / Memorystore
+- **Monitoring**: Sentry
+- **Email**: Nodemailer (SMTP)
+- **Security**: Helmet, rate-limit-express
+- **Logging**: Winston
 - **Build**: Vite, esbuild
 
 ### Project Structure
@@ -139,10 +227,13 @@ Ensure all environment variables are set in your production environment:
 │   │   ├── hooks/       # Custom React hooks
 │   │   └── lib/         # Utilities and API client
 ├── server/              # Express backend
-│   ├── services/        # AI orchestrator, website fetcher, Stripe
+│   ├── config/          # Session, Sentry, logging, security
+│   ├── services/        # AI orchestrator, website fetcher, Stripe, email
 │   ├── middleware.ts    # Rate limiting, validation, auth
 │   ├── routes.ts        # API endpoints
-│   └── storage.ts       # Database operations
+│   ├── storage.ts       # Database operations
+│   └── auth.ts          # Authentication
+├── scripts/             # Database backup/restore scripts
 ├── shared/              # Shared types and schemas
 │   └── schema.ts        # Drizzle schema definitions
 └── dist/                # Production build output

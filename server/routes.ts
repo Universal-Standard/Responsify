@@ -10,6 +10,7 @@ import { fetchWebsite, extractWebsiteContent } from "./services/websiteFetcher";
 import { runMultiAgentAnalysis, generateConsensusHtml } from "./services/multiAgentOrchestrator";
 import { ZodError } from "zod";
 import { analysisLimiter } from "./middleware";
+import { emailService } from "./services/email";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -29,6 +30,64 @@ export async function registerRoutes(
       error: error.message || defaultMessage 
     });
   };
+
+  // ============================================
+  // HEALTH CHECK & MONITORING
+  // ============================================
+
+  /**
+   * GET /api/health
+   * Health check endpoint for monitoring and load balancers
+   */
+  app.get("/api/health", async (req, res) => {
+    const health = {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      services: {
+        database: 'ok',
+        email: 'ok',
+        stripe: 'ok',
+      },
+    };
+
+    try {
+      // Check database connection
+      await storage.db.execute({ sql: 'SELECT 1' });
+    } catch (error) {
+      health.status = 'degraded';
+      health.services.database = 'error';
+    }
+
+    // Check if Stripe is configured
+    if (!process.env.STRIPE_SECRET_KEY) {
+      health.services.stripe = 'not_configured';
+    }
+
+    // Check if email is configured
+    if (!process.env.SMTP_HOST) {
+      health.services.email = 'not_configured';
+    }
+
+    const statusCode = health.status === 'ok' ? 200 : 503;
+    res.status(statusCode).json(health);
+  });
+
+  /**
+   * GET /api/health/ready
+   * Readiness check - more thorough than health check
+   */
+  app.get("/api/health/ready", async (req, res) => {
+    try {
+      // Check if database is ready
+      await storage.db.execute({ sql: 'SELECT 1' });
+      
+      res.json({ status: 'ready' });
+    } catch (error) {
+      res.status(503).json({ status: 'not_ready', error: 'Database not accessible' });
+    }
+  });
 
   // ============================================
   // ANALYSIS ENDPOINTS
@@ -397,6 +456,12 @@ export async function registerRoutes(
                 cancelAtPeriodEnd: false,
                 analysesUsedThisMonth: 0,
               });
+              
+              // Send confirmation email
+              const customerEmail = session.customer_details?.email || session.customer_email;
+              if (customerEmail) {
+                await emailService.sendSubscriptionConfirmation(customerEmail, plan.name);
+              }
             }
           }
           break;
@@ -435,6 +500,20 @@ export async function registerRoutes(
             await storage.updateUserSubscription(dbSubscription.id, {
               status: 'canceled',
             });
+            
+            // Send cancellation email
+            const plan = await storage.getSubscriptionPlan(dbSubscription.planId);
+            if (plan) {
+              const user = await storage.getUser(dbSubscription.userId);
+              if (user) {
+                const userEmail = `${user.username}@responsiai.local`;
+                await emailService.sendSubscriptionCancellation(
+                  userEmail,
+                  plan.name,
+                  dbSubscription.currentPeriodEnd
+                );
+              }
+            }
           }
           break;
         }
@@ -453,6 +532,16 @@ export async function registerRoutes(
               await storage.updateUserSubscription(dbSubscription.id, {
                 status: 'past_due',
               });
+              
+              // Send payment failure notification
+              const plan = await storage.getSubscriptionPlan(dbSubscription.planId);
+              if (plan) {
+                const user = await storage.getUser(dbSubscription.userId);
+                if (user) {
+                  const userEmail = `${user.username}@responsiai.local`;
+                  await emailService.sendPaymentFailure(userEmail, plan.name);
+                }
+              }
             }
           }
           break;
