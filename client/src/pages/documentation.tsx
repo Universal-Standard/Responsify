@@ -305,19 +305,19 @@ export default function Documentation() {
 
                 <div>
                   <div className="flex items-center gap-2 mb-3">
-                    <Badge className="bg-blue-500">v1.1 - Planned</Badge>
+                    <Badge className="bg-green-500">v1.0 - Available</Badge>
                   </div>
                   <ul className="space-y-2 text-muted-foreground">
                     <li className="flex items-start gap-2">
-                      <span>⏳</span>
+                      <span className="text-green-500">✓</span>
                       <span>Stripe billing integration</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <span>⏳</span>
+                      <span className="text-green-500">✓</span>
                       <span>Subscription management</span>
                     </li>
                     <li className="flex items-start gap-2">
-                      <span>⏳</span>
+                      <span className="text-green-500">✓</span>
                       <span>Usage analytics dashboard</span>
                     </li>
                   </ul>
