@@ -1,5 +1,6 @@
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
+import { convert } from 'html-to-text';
 
 /**
  * Email service for sending notifications
@@ -121,7 +122,8 @@ class EmailService {
   private async sendEmail(to: string, subject: string, html: string) {
     if (!this.isConfigured || !this.transporter) {
       console.log(`📧 [EMAIL] To: ${to}, Subject: ${subject}`);
-      console.log(`📧 [EMAIL] Would send: ${html.replace(/<[^>]*>/g, '').substring(0, 100)}...`);
+      const previewText = convert(html, { wordwrap: false }).substring(0, 100);
+      console.log(`📧 [EMAIL] Would send: ${previewText}...`);
       return { success: true, mode: 'logged' };
     }
 
