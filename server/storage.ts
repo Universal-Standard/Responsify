@@ -2,10 +2,12 @@ import {
   users, type User, type InsertUser,
   savedDesigns, type SavedDesign, type InsertSavedDesign,
   analysisJobs, type AnalysisJob, type InsertAnalysisJob, type UpdateAnalysisJob,
-  designVersions, type DesignVersion, type InsertDesignVersion
+  designVersions, type DesignVersion, type InsertDesignVersion,
+  subscriptionPlans, type SubscriptionPlan, type InsertSubscriptionPlan,
+  userSubscriptions, type UserSubscription, type InsertUserSubscription
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and, gte } from "drizzle-orm";
 
 export interface IStorage {
   // Users
@@ -31,6 +33,28 @@ export interface IStorage {
   getDesignVersions(jobId: string): Promise<DesignVersion[]>;
   getDesignVersion(id: string): Promise<DesignVersion | undefined>;
   selectDesignVersion(id: string): Promise<DesignVersion | undefined>;
+  
+  // Subscription Plans
+  createSubscriptionPlan(plan: InsertSubscriptionPlan): Promise<SubscriptionPlan>;
+  getAllSubscriptionPlans(): Promise<SubscriptionPlan[]>;
+  getSubscriptionPlan(id: string): Promise<SubscriptionPlan | undefined>;
+  getSubscriptionPlanByStripeId(stripePriceId: string): Promise<SubscriptionPlan | undefined>;
+  
+  // User Subscriptions
+  createUserSubscription(subscription: InsertUserSubscription): Promise<UserSubscription>;
+  getUserSubscription(userId: string): Promise<UserSubscription | undefined>;
+  getUserSubscriptionByStripeId(stripeSubscriptionId: string): Promise<UserSubscription | undefined>;
+  updateUserSubscription(id: string, updates: Partial<InsertUserSubscription>): Promise<UserSubscription | undefined>;
+  incrementAnalysesUsed(userId: string): Promise<void>;
+  resetMonthlyAnalyses(userId: string): Promise<void>;
+  
+  // Analytics
+  getAnalyticsStats(userId?: string): Promise<{
+    totalAnalyses: number;
+    savedDesigns: number;
+    averageScore: number;
+  }>;
+  getRecentAnalyses(userId?: string, limit?: number): Promise<AnalysisJob[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -138,6 +162,106 @@ export class DatabaseStorage implements IStorage {
       .where(eq(designVersions.id, id))
       .returning();
     return updated;
+  }
+  
+  // Subscription Plans
+  async createSubscriptionPlan(plan: InsertSubscriptionPlan): Promise<SubscriptionPlan> {
+    const [created] = await db.insert(subscriptionPlans).values(plan).returning();
+    return created;
+  }
+  
+  async getAllSubscriptionPlans(): Promise<SubscriptionPlan[]> {
+    return await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.isActive, true));
+  }
+  
+  async getSubscriptionPlan(id: string): Promise<SubscriptionPlan | undefined> {
+    const [plan] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.id, id));
+    return plan || undefined;
+  }
+  
+  async getSubscriptionPlanByStripeId(stripePriceId: string): Promise<SubscriptionPlan | undefined> {
+    const [plan] = await db.select().from(subscriptionPlans).where(eq(subscriptionPlans.stripePriceId, stripePriceId));
+    return plan || undefined;
+  }
+  
+  // User Subscriptions
+  async createUserSubscription(subscription: InsertUserSubscription): Promise<UserSubscription> {
+    const [created] = await db.insert(userSubscriptions).values(subscription).returning();
+    return created;
+  }
+  
+  async getUserSubscription(userId: string): Promise<UserSubscription | undefined> {
+    const [subscription] = await db.select().from(userSubscriptions)
+      .where(and(
+        eq(userSubscriptions.userId, userId),
+        eq(userSubscriptions.status, 'active')
+      ));
+    return subscription || undefined;
+  }
+  
+  async getUserSubscriptionByStripeId(stripeSubscriptionId: string): Promise<UserSubscription | undefined> {
+    const [subscription] = await db.select().from(userSubscriptions)
+      .where(eq(userSubscriptions.stripeSubscriptionId, stripeSubscriptionId));
+    return subscription || undefined;
+  }
+  
+  async updateUserSubscription(id: string, updates: Partial<InsertUserSubscription>): Promise<UserSubscription | undefined> {
+    const [updated] = await db
+      .update(userSubscriptions)
+      .set({ ...updates, updatedAt: new Date() })
+      .where(eq(userSubscriptions.id, id))
+      .returning();
+    return updated || undefined;
+  }
+  
+  async incrementAnalysesUsed(userId: string): Promise<void> {
+    await db
+      .update(userSubscriptions)
+      .set({ analysesUsedThisMonth: sql`${userSubscriptions.analysesUsedThisMonth} + 1` })
+      .where(eq(userSubscriptions.userId, userId));
+  }
+  
+  async resetMonthlyAnalyses(userId: string): Promise<void> {
+    await db
+      .update(userSubscriptions)
+      .set({ analysesUsedThisMonth: 0 })
+      .where(eq(userSubscriptions.userId, userId));
+  }
+  
+  // Analytics
+  async getAnalyticsStats(userId?: string): Promise<{
+    totalAnalyses: number;
+    savedDesigns: number;
+    averageScore: number;
+  }> {
+    // Get total analyses
+    const [analysesResult] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(analysisJobs)
+      .where(eq(analysisJobs.status, 'completed'));
+    
+    // Get saved designs count
+    const [designsResult] = await db.select({ count: sql<number>`count(*)::int` })
+      .from(savedDesigns);
+    
+    // Get average score
+    const [scoreResult] = await db.select({ 
+      avg: sql<number>`COALESCE(avg(${analysisJobs.consensusScore})::int, 0)` 
+    })
+      .from(analysisJobs)
+      .where(eq(analysisJobs.status, 'completed'));
+    
+    return {
+      totalAnalyses: analysesResult.count || 0,
+      savedDesigns: designsResult.count || 0,
+      averageScore: scoreResult.avg || 0,
+    };
+  }
+  
+  async getRecentAnalyses(userId?: string, limit: number = 10): Promise<AnalysisJob[]> {
+    return await db.select().from(analysisJobs)
+      .where(eq(analysisJobs.status, 'completed'))
+      .orderBy(desc(analysisJobs.completedAt))
+      .limit(limit);
   }
 }
 

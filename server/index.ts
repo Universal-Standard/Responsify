@@ -1,14 +1,40 @@
 import express, { type Request, Response, NextFunction } from "express";
+import session from "express-session";
 import { registerRoutes } from "./routes";
 import { serveStatic } from "./static";
 import { createServer } from "http";
+import { apiLimiter, validateRequest, errorHandler } from "./middleware";
+import { authenticate } from "./auth";
+import { seedSubscriptionPlans } from "./seed-plans";
+import { createSessionStore, getSessionConfig } from "./config/session";
+import { initializeSentry, sentryRequestHandler, sentryTracingHandler, sentryErrorHandler } from "./config/sentry";
+import { configureSecurityHeaders } from "./config/security";
+import { log as loggerLog } from "./config/logger";
 
 const app = express();
 const httpServer = createServer(app);
 
+// Initialize Sentry first (before any other middleware)
+initializeSentry(app);
+
+// Sentry request handler - must be first
+app.use(sentryRequestHandler());
+
+// Sentry tracing handler - after request handler
+app.use(sentryTracingHandler());
+
+// Configure security headers (helmet)
+configureSecurityHeaders(app);
+
 declare module "http" {
   interface IncomingMessage {
     rawBody: unknown;
+  }
+}
+
+declare module "express-session" {
+  interface SessionData {
+    userId?: string;
   }
 }
 
@@ -21,6 +47,20 @@ app.use(
 );
 
 app.use(express.urlencoded({ extended: false }));
+
+// Apply rate limiting to all API routes FIRST (before expensive operations)
+app.use('/api', apiLimiter);
+
+// Apply security middleware, but skip for Stripe webhook (needs raw body)
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.path === "/api/billing/webhook") {
+    return next();
+  }
+  return validateRequest(req, res, next);
+});
+
+// Apply authentication to all API routes
+app.use('/api', authenticate);
 
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
@@ -60,15 +100,42 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // Initialize session store
+  try {
+    log('Initializing session store...');
+    const sessionStore = await createSessionStore();
+    const sessionConfig = getSessionConfig(sessionStore);
+
+    // Ensure session cookies are sent only over HTTPS and are not accessible via client-side JavaScript
+    sessionConfig.cookie = sessionConfig.cookie || {};
+    sessionConfig.cookie.httpOnly = sessionConfig.cookie.httpOnly ?? true;
+
+    if (process.env.NODE_ENV === "production") {
+      // Behind a reverse proxy/HTTPS terminator, trust the proxy so "secure" cookies work correctly
+      app.set("trust proxy", 1);
+      sessionConfig.cookie.secure = sessionConfig.cookie.secure ?? true;
+    }
+
+    app.use(session(sessionConfig));
+    log('✅ Session store initialized');
+  } catch (error) {
+    console.error('Failed to initialize session store:', error);
+  }
+
+  // Seed subscription plans on startup
+  try {
+    await seedSubscriptionPlans();
+  } catch (error) {
+    console.error('Failed to seed subscription plans:', error);
+  }
+  
   await registerRoutes(httpServer, app);
 
-  app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
-    const status = err.status || err.statusCode || 500;
-    const message = err.message || "Internal Server Error";
+  // Sentry error handler - must be after all routes
+  app.use(sentryErrorHandler());
 
-    res.status(status).json({ message });
-    throw err;
-  });
+  // Use custom error handler (after Sentry)
+  app.use(errorHandler);
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
@@ -93,6 +160,7 @@ app.use((req, res, next) => {
     },
     () => {
       log(`serving on port ${port}`);
+      loggerLog.info(`🚀 Server started on port ${port}`);
     },
   );
 })();

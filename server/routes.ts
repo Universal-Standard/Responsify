@@ -9,6 +9,8 @@ import {
 import { fetchWebsite, extractWebsiteContent } from "./services/websiteFetcher";
 import { runMultiAgentAnalysis, generateConsensusHtml } from "./services/multiAgentOrchestrator";
 import { ZodError } from "zod";
+import { analysisLimiter, billingLimiter } from "./middleware";
+import { emailService } from "./services/email";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -30,14 +32,73 @@ export async function registerRoutes(
   };
 
   // ============================================
+  // HEALTH CHECK & MONITORING
+  // ============================================
+
+  /**
+   * GET /api/health
+   * Health check endpoint for monitoring and load balancers
+   */
+  app.get("/api/health", async (req, res) => {
+    const health = {
+      status: 'ok',
+      timestamp: new Date().toISOString(),
+      uptime: process.uptime(),
+      environment: process.env.NODE_ENV || 'development',
+      services: {
+        database: 'ok',
+        email: 'ok',
+        stripe: 'ok',
+      },
+    };
+
+    try {
+      // Check database connection
+      await storage.db.execute({ sql: 'SELECT 1' });
+    } catch (error) {
+      health.status = 'degraded';
+      health.services.database = 'error';
+    }
+
+    // Check if Stripe is configured
+    if (!process.env.STRIPE_SECRET_KEY) {
+      health.services.stripe = 'not_configured';
+    }
+
+    // Check if email is configured
+    if (!process.env.SMTP_HOST) {
+      health.services.email = 'not_configured';
+    }
+
+    const statusCode = health.status === 'ok' ? 200 : 503;
+    res.status(statusCode).json(health);
+  });
+
+  /**
+   * GET /api/health/ready
+   * Readiness check - more thorough than health check
+   */
+  app.get("/api/health/ready", async (req, res) => {
+    try {
+      // Check if database is ready
+      await storage.db.execute({ sql: 'SELECT 1' });
+      
+      res.json({ status: 'ready' });
+    } catch (error) {
+      res.status(503).json({ status: 'not_ready', error: 'Database not accessible' });
+    }
+  });
+
+  // ============================================
   // ANALYSIS ENDPOINTS
   // ============================================
 
   /**
    * POST /api/analyze
    * Start analyzing a URL - fetches website and initiates AI analysis
+   * Rate limited to prevent abuse of expensive AI operations
    */
-  app.post("/api/analyze", async (req, res) => {
+  app.post("/api/analyze", analysisLimiter, async (req, res) => {
     try {
       const { url } = analyzeUrlRequestSchema.parse(req.body);
 
@@ -250,6 +311,352 @@ export async function registerRoutes(
       res.json(version);
     } catch (error) {
       handleError(res, error, "Failed to select version");
+    }
+  });
+
+  // ============================================
+  // BILLING ENDPOINTS (Stripe Integration)
+  // ============================================
+
+  /**
+   * POST /api/billing/create-checkout-session
+   * Create a Stripe Checkout session for subscription
+   */
+  app.post("/api/billing/create-checkout-session", billingLimiter, async (req, res) => {
+    try {
+      const { createCheckoutSession, createCustomer } = await import("./services/stripe");
+      const { createCheckoutSessionSchema } = await import("@shared/schema");
+      
+      const { priceId } = createCheckoutSessionSchema.parse(req.body);
+      const userId = req.userId!;
+      
+      // Get or create user
+      let user = await storage.getUser(userId);
+      if (!user) {
+        // Create a default user for this session
+        user = await storage.createUser({
+          username: `user_${userId.substring(0, 8)}`,
+          password: '', // Password not used in this flow
+        });
+      }
+      
+      // Get user's subscription to check for existing Stripe customer
+      let subscription = await storage.getUserSubscription(userId);
+      let stripeCustomerId: string;
+      
+      if (subscription?.stripeCustomerId) {
+        stripeCustomerId = subscription.stripeCustomerId;
+      } else {
+        // Create Stripe customer
+        const customer = await createCustomer(
+          `user_${userId.substring(0, 8)}@responsiai.local`,
+          userId
+        );
+        stripeCustomerId = customer.id;
+      }
+      
+      const session = await createCheckoutSession(
+        priceId,
+        userId,
+        `user_${userId.substring(0, 8)}@responsiai.local`,
+        stripeCustomerId
+      );
+      
+      res.json({ sessionId: session.id, url: session.url });
+    } catch (error) {
+      handleError(res, error, "Failed to create checkout session");
+    }
+  });
+
+  /**
+   * POST /api/billing/create-portal-session
+   * Create a Stripe Customer Portal session
+   */
+  app.post("/api/billing/create-portal-session", billingLimiter, async (req, res) => {
+    try {
+      const { createPortalSession } = await import("./services/stripe");
+      const { manageBillingPortalSchema } = await import("@shared/schema");
+      
+      const { returnUrl } = manageBillingPortalSchema.parse(req.body);
+      const userId = req.userId!;
+      
+      // Validate returnUrl belongs to our application
+      const appUrl = process.env.APP_URL || 'http://localhost:5000';
+      if (returnUrl && !returnUrl.startsWith(appUrl)) {
+        return res.status(400).json({ error: "Invalid return URL" });
+      }
+      
+      // Get user's subscription
+      const subscription = await storage.getUserSubscription(userId);
+      if (!subscription || !subscription.stripeCustomerId) {
+        return res.status(404).json({ error: "No active subscription found" });
+      }
+      
+      const session = await createPortalSession(subscription.stripeCustomerId, returnUrl);
+      
+      res.json({ url: session.url });
+    } catch (error) {
+      handleError(res, error, "Failed to create portal session");
+    }
+  });
+
+  /**
+   * POST /api/billing/webhook
+   * Handle Stripe webhook events
+   */
+  app.post("/api/billing/webhook", async (req, res) => {
+    try {
+      const { constructWebhookEvent } = await import("./services/stripe");
+      const signature = req.headers['stripe-signature'] as string;
+      
+      if (!signature) {
+        return res.status(400).json({ error: "Missing stripe-signature header" });
+      }
+      
+      const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || '';
+      const event = constructWebhookEvent(
+        req.rawBody as Buffer,
+        signature,
+        webhookSecret
+      );
+      
+      const isProduction = process.env.NODE_ENV === 'production';
+      
+      // Handle different event types
+      switch (event.type) {
+        case 'checkout.session.completed': {
+          const session = event.data.object as any;
+          const userId = session.client_reference_id || session.metadata?.userId;
+          const subscriptionId = session.subscription;
+          
+          if (!isProduction) {
+            console.log('Checkout completed', { type: event.type, userId, subscriptionId });
+          }
+          
+          if (userId && subscriptionId) {
+            // Get subscription details from Stripe
+            const { getSubscription } = await import("./services/stripe");
+            const stripeSubscription = await getSubscription(subscriptionId as string);
+            
+            // Get the plan
+            const plan = await storage.getSubscriptionPlanByStripeId(
+              stripeSubscription.items.data[0].price.id
+            );
+            
+            if (plan) {
+              // Create user subscription
+              await storage.createUserSubscription({
+                userId,
+                planId: plan.id,
+                stripeCustomerId: session.customer as string,
+                stripeSubscriptionId: subscriptionId as string,
+                status: 'active',
+                currentPeriodStart: new Date(stripeSubscription.current_period_start * 1000),
+                currentPeriodEnd: new Date(stripeSubscription.current_period_end * 1000),
+                cancelAtPeriodEnd: false,
+                analysesUsedThisMonth: 0,
+              });
+              
+              // Send confirmation email
+              const customerEmail = session.customer_details?.email || session.customer_email;
+              if (customerEmail) {
+                await emailService.sendSubscriptionConfirmation(customerEmail, plan.name);
+              }
+            }
+          }
+          break;
+        }
+          
+        case 'customer.subscription.updated': {
+          const subscription = event.data.object as any;
+          
+          if (!isProduction) {
+            console.log('Subscription updated', { type: event.type, id: subscription.id });
+          }
+          
+          const dbSubscription = await storage.getUserSubscriptionByStripeId(subscription.id);
+          
+          if (dbSubscription) {
+            await storage.updateUserSubscription(dbSubscription.id, {
+              status: subscription.status,
+              currentPeriodStart: new Date(subscription.current_period_start * 1000),
+              currentPeriodEnd: new Date(subscription.current_period_end * 1000),
+              cancelAtPeriodEnd: subscription.cancel_at_period_end,
+            });
+          }
+          break;
+        }
+          
+        case 'customer.subscription.deleted': {
+          const subscription = event.data.object as any;
+          
+          if (!isProduction) {
+            console.log('Subscription deleted', { type: event.type, id: subscription.id });
+          }
+          
+          const dbSubscription = await storage.getUserSubscriptionByStripeId(subscription.id);
+          
+          if (dbSubscription) {
+            await storage.updateUserSubscription(dbSubscription.id, {
+              status: 'canceled',
+            });
+            
+            // Send cancellation email
+            const plan = await storage.getSubscriptionPlan(dbSubscription.planId);
+            if (plan) {
+              const user = await storage.getUser(dbSubscription.userId);
+              if (user) {
+                const userEmail = `${user.username}@responsiai.local`;
+                await emailService.sendSubscriptionCancellation(
+                  userEmail,
+                  plan.name,
+                  dbSubscription.currentPeriodEnd
+                );
+              }
+            }
+          }
+          break;
+        }
+          
+        case 'invoice.payment_failed': {
+          const invoice = event.data.object as any;
+          const subscriptionId = invoice.subscription;
+          
+          if (!isProduction) {
+            console.log('Payment failed', { type: event.type, subscriptionId });
+          }
+          
+          if (subscriptionId) {
+            const dbSubscription = await storage.getUserSubscriptionByStripeId(subscriptionId);
+            if (dbSubscription) {
+              await storage.updateUserSubscription(dbSubscription.id, {
+                status: 'past_due',
+              });
+              
+              // Send payment failure notification
+              const plan = await storage.getSubscriptionPlan(dbSubscription.planId);
+              if (plan) {
+                const user = await storage.getUser(dbSubscription.userId);
+                if (user) {
+                  const userEmail = `${user.username}@responsiai.local`;
+                  await emailService.sendPaymentFailure(userEmail, plan.name);
+                }
+              }
+            }
+          }
+          break;
+        }
+          
+        default:
+          if (!isProduction) {
+            console.log('Unhandled webhook event', { type: event.type });
+          }
+      }
+      
+      res.json({ received: true });
+    } catch (error: any) {
+      // Distinguish Stripe signature verification errors (client issue)
+      if (error?.type === 'StripeSignatureVerificationError') {
+        return res.status(400).json({ error: "Invalid webhook signature" });
+      }
+      // Other errors are treated as internal processing errors
+      handleError(res, error, "Webhook error");
+    }
+  });
+
+  /**
+   * GET /api/billing/plans
+   * Get all available subscription plans from database
+   */
+  app.get("/api/billing/plans", async (req, res) => {
+    try {
+      const plans = await storage.getAllSubscriptionPlans();
+      
+      // Format plans for frontend
+      const formattedPlans = plans.map(plan => ({
+        id: plan.id,
+        name: plan.name,
+        description: plan.description,
+        price: plan.price,
+        currency: plan.currency,
+        interval: plan.interval,
+        analysesPerMonth: plan.analysesPerMonth,
+        maxSavedDesigns: plan.maxSavedDesigns,
+        features: typeof plan.features === 'string' ? JSON.parse(plan.features) : plan.features,
+        stripePriceId: plan.stripePriceId,
+        isActive: plan.isActive,
+      }));
+      
+      res.json(formattedPlans);
+    } catch (error) {
+      handleError(res, error, "Failed to get plans");
+    }
+  });
+  
+  /**
+   * GET /api/user/subscription
+   * Get current user's subscription details
+   */
+  app.get("/api/user/subscription", async (req, res) => {
+    try {
+      const userId = req.userId!;
+      const subscription = await storage.getUserSubscription(userId);
+      
+      if (!subscription) {
+        return res.json({ plan: 'Free', status: 'active', analysesUsed: 0, analysesLimit: 5 });
+      }
+      
+      const plan = await storage.getSubscriptionPlan(subscription.planId);
+      
+      res.json({
+        id: subscription.id,
+        plan: plan?.name || 'Unknown',
+        status: subscription.status,
+        analysesUsed: subscription.analysesUsedThisMonth,
+        analysesLimit: plan?.analysesPerMonth || 0,
+        currentPeriodEnd: subscription.currentPeriodEnd,
+        cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+      });
+    } catch (error) {
+      handleError(res, error, "Failed to get subscription");
+    }
+  });
+  
+  /**
+   * GET /api/analytics/stats
+   * Get analytics statistics
+   */
+  app.get("/api/analytics/stats", async (req, res) => {
+    try {
+      const userId = req.userId;
+      const stats = await storage.getAnalyticsStats(userId);
+      res.json(stats);
+    } catch (error) {
+      handleError(res, error, "Failed to get analytics stats");
+    }
+  });
+  
+  /**
+   * GET /api/analytics/recent
+   * Get recent analyses
+   */
+  app.get("/api/analytics/recent", async (req, res) => {
+    try {
+      const userId = req.userId;
+      const limit = parseInt(req.query.limit as string) || 10;
+      const analyses = await storage.getRecentAnalyses(userId, limit);
+      
+      // Format for frontend
+      const formatted = analyses.map(job => ({
+        url: job.url,
+        score: job.consensusScore || 0,
+        date: job.completedAt?.toISOString().split('T')[0] || '',
+        type: 'Website', // Could be enhanced with categorization
+      }));
+      
+      res.json(formatted);
+    } catch (error) {
+      handleError(res, error, "Failed to get recent analyses");
     }
   });
 

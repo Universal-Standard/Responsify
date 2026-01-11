@@ -213,3 +213,80 @@ export const insertDesignVersionSchema = createInsertSchema(designVersions).omit
 
 export type DesignVersion = typeof designVersions.$inferSelect;
 export type InsertDesignVersion = z.infer<typeof insertDesignVersionSchema>;
+
+// Subscription plans table
+export const subscriptionPlans = pgTable("subscription_plans", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  name: text("name").notNull(),
+  description: text("description"),
+  stripePriceId: text("stripe_price_id").notNull().unique(),
+  
+  // Pricing
+  price: integer("price").notNull(), // in cents
+  currency: text("currency").notNull().default("usd"),
+  interval: text("interval").notNull(), // 'month' or 'year'
+  
+  // Limits
+  analysesPerMonth: integer("analyses_per_month").notNull(),
+  maxSavedDesigns: integer("max_saved_designs").notNull(),
+  
+  // Features
+  features: jsonb("features"),
+  
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertSubscriptionPlanSchema = createInsertSchema(subscriptionPlans).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type SubscriptionPlan = typeof subscriptionPlans.$inferSelect;
+export type InsertSubscriptionPlan = z.infer<typeof insertSubscriptionPlanSchema>;
+
+// User subscriptions table
+export const userSubscriptions = pgTable("user_subscriptions", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull().references(() => users.id),
+  planId: varchar("plan_id").notNull().references(() => subscriptionPlans.id),
+  
+  // Stripe details
+  stripeCustomerId: text("stripe_customer_id").notNull(),
+  stripeSubscriptionId: text("stripe_subscription_id").notNull().unique(),
+  
+  // Status
+  status: text("status").notNull(), // 'active', 'canceled', 'past_due', 'trialing'
+  currentPeriodStart: timestamp("current_period_start").notNull(),
+  currentPeriodEnd: timestamp("current_period_end").notNull(),
+  cancelAtPeriodEnd: boolean("cancel_at_period_end").default(false),
+  
+  // Usage tracking
+  analysesUsedThisMonth: integer("analyses_used_this_month").default(0),
+  
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
+
+export const insertUserSubscriptionSchema = createInsertSchema(userSubscriptions).omit({
+  id: true,
+  createdAt: true,
+  updatedAt: true,
+});
+
+export type UserSubscription = typeof userSubscriptions.$inferSelect;
+export type InsertUserSubscription = z.infer<typeof insertUserSubscriptionSchema>;
+
+// Billing API schemas
+export const createCheckoutSessionSchema = z.object({
+  priceId: z.string().min(1, "Price ID is required"),
+});
+
+export const manageBillingPortalSchema = z.object({
+  returnUrl: z.string().url().optional(),
+});
+
+export type CreateCheckoutSessionRequest = z.infer<typeof createCheckoutSessionSchema>;
+export type ManageBillingPortalRequest = z.infer<typeof manageBillingPortalSchema>;
