@@ -105,6 +105,17 @@ app.use((req, res, next) => {
     log('Initializing session store...');
     const sessionStore = await createSessionStore();
     const sessionConfig = getSessionConfig(sessionStore);
+
+    // Ensure session cookies are sent only over HTTPS and are not accessible via client-side JavaScript
+    sessionConfig.cookie = sessionConfig.cookie || {};
+    sessionConfig.cookie.httpOnly = sessionConfig.cookie.httpOnly ?? true;
+
+    if (process.env.NODE_ENV === "production") {
+      // Behind a reverse proxy/HTTPS terminator, trust the proxy so "secure" cookies work correctly
+      app.set("trust proxy", 1);
+      sessionConfig.cookie.secure = sessionConfig.cookie.secure ?? true;
+    }
+
     app.use(session(sessionConfig));
     log('✅ Session store initialized');
   } catch (error) {
