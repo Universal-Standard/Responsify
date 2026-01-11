@@ -9,7 +9,7 @@ import {
 import { fetchWebsite, extractWebsiteContent } from "./services/websiteFetcher";
 import { runMultiAgentAnalysis, generateConsensusHtml } from "./services/multiAgentOrchestrator";
 import { ZodError } from "zod";
-import { analysisLimiter } from "./middleware";
+import { analysisLimiter, billingLimiter } from "./middleware";
 import { emailService } from "./services/email";
 
 export async function registerRoutes(
@@ -322,7 +322,7 @@ export async function registerRoutes(
    * POST /api/billing/create-checkout-session
    * Create a Stripe Checkout session for subscription
    */
-  app.post("/api/billing/create-checkout-session", async (req, res) => {
+  app.post("/api/billing/create-checkout-session", billingLimiter, async (req, res) => {
     try {
       const { createCheckoutSession, createCustomer } = await import("./services/stripe");
       const { createCheckoutSessionSchema } = await import("@shared/schema");
@@ -372,7 +372,7 @@ export async function registerRoutes(
    * POST /api/billing/create-portal-session
    * Create a Stripe Customer Portal session
    */
-  app.post("/api/billing/create-portal-session", async (req, res) => {
+  app.post("/api/billing/create-portal-session", billingLimiter, async (req, res) => {
     try {
       const { createPortalSession } = await import("./services/stripe");
       const { manageBillingPortalSchema } = await import("@shared/schema");

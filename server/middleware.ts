@@ -27,6 +27,18 @@ export const analysisLimiter = rateLimit({
 });
 
 /**
+ * Rate limiting for billing endpoints
+ * Prevents abuse of Stripe API calls which can incur costs
+ */
+export const billingLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 20, // Limit each IP to 20 billing requests per hour
+  message: 'Billing request limit reached. Please try again later.',
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+/**
  * Authentication middleware
  * Checks if user has a valid session
  */
