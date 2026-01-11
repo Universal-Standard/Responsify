@@ -304,13 +304,11 @@ Stripe webhook handler (requires signature verification)
 
 ### ⚠️ Important Security Notes
 
-**XSS Protection**: The current input validation middleware provides basic XSS protection by stripping HTML tags and common attack patterns. However, this is **NOT comprehensive** and should be replaced before production deployment.
+**XSS Protection**: The current input validation middleware uses `sanitize-html` server-side with a strict configuration that strips all HTML tags and common attack patterns. This is intentionally conservative and may be too restrictive for some production use cases, so you should review and adjust the configuration before deployment.
 
 **Required for Production:**
-1. **Replace Basic Sanitization**: Install and use a proper sanitization library:
+1. **Review Sanitization Configuration**: `sanitize-html` is already integrated in the middleware. For production, verify that its configuration matches your threat model and content needs (e.g., which tags/attributes, if any, should be allowed). If you need richer HTML handling (such as allowing limited user-generated HTML), consider integrating a client-side sanitizer like DOMPurify:
    ```bash
-   npm install sanitize-html
-   # or for more comprehensive protection:
    npm install dompurify isomorphic-dompurify
    ```
 
