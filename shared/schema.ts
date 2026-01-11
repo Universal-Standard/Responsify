@@ -285,16 +285,7 @@ export const createCheckoutSessionSchema = z.object({
 });
 
 export const manageBillingPortalSchema = z.object({
-  returnUrl: z.string().url().optional().refine(
-    (url) => {
-      if (!url) return true; // Optional field
-      const appUrl = process.env.APP_URL || 'http://localhost:5000';
-      return url.startsWith(appUrl);
-    },
-    {
-      message: "Return URL must belong to this application's domain",
-    }
-  ),
+  returnUrl: z.string().url().optional(),
 });
 
 export type CreateCheckoutSessionRequest = z.infer<typeof createCheckoutSessionSchema>;
